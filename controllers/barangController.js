@@ -1,125 +1,262 @@
-    const db = require("../config/db");
-    const QRCode = require("qrcode");
-    const response = require("../utils/response");
+const db = require("../config/db");
+const QRCode = require("qrcode");
+const response = require("../utils/response");
+const XLSX = require("xlsx");
+const PDFDocument = require("pdfkit");
 
+// 🔥 AUTO GENERATE KODE BARANG
+const generateKodeBarang = () => {
+  const random = Math.floor(1000 + Math.random() * 9000);
+  return `BRG-${Date.now()}-${random}`;
+};
 
-    // ambil semua barang
-    exports.getBarang = (req,res)=>{
-
-    const sql = `
-    SELECT barang.*, kategori_barang.nama_kategori
+const getKartuStokData = (barangId, startDate, endDate, callback) => {
+  const sqlBarang = `
+    SELECT id, kode_barang, nama_barang, satuan, stok
     FROM barang
-    JOIN kategori_barang
-    ON barang.kategori_id = kategori_barang.id
+    WHERE id = ? AND is_deleted = 0
+  `;
+
+  db.query(sqlBarang, [barangId], (err, barangRows) => {
+    if (err) return callback(err);
+    if (barangRows.length === 0) return callback(null, null);
+
+    const barang = barangRows[0];
+    const useDateFilter = !!(startDate && endDate);
+    const dateFilter = useDateFilter ? " AND tanggal BETWEEN ? AND ?" : "";
+
+    const sqlMutasi = `
+      SELECT 
+        id,
+        tanggal,
+        'masuk' AS jenis,
+        jumlah,
+        keterangan,
+        NULL AS pengajuan_id
+      FROM stok_masuk
+      WHERE barang_id = ? ${dateFilter}
+
+      UNION ALL
+
+      SELECT
+        id,
+        tanggal,
+        'keluar' AS jenis,
+        jumlah,
+        keterangan,
+        pengajuan_id
+      FROM stok_keluar
+      WHERE barang_id = ? ${dateFilter}
+
+      UNION ALL
+
+      SELECT
+        id,
+        created_at AS tanggal,
+        IF(selisih > 0, 'masuk', 'keluar') AS jenis,
+        ABS(selisih) AS jumlah,
+        CONCAT('[OPNAME] ', catatan) AS keterangan,
+        NULL AS pengajuan_id
+      FROM stock_opname
+      WHERE barang_id = ? ${dateFilter}
+
+      ORDER BY tanggal ASC, id ASC
     `;
 
-    db.query(sql,(err,result)=>{
-        if(err){
-            return res.status(500).json(err);
-        }
+    const params = useDateFilter
+      ? [barangId, startDate, endDate, barangId, startDate, endDate, barangId, startDate, endDate]
+      : [barangId, barangId, barangId];
 
-        res.json(result);
+    db.query(sqlMutasi, params, (err2, mutasiRows) => {
+      if (err2) return callback(err2);
+
+      let totalMasuk = 0;
+      let totalKeluar = 0;
+
+      mutasiRows.forEach((row) => {
+        const qty = parseInt(row.jumlah) || 0;
+        if (row.jenis === "masuk") totalMasuk += qty;
+        if (row.jenis === "keluar") totalKeluar += qty;
+      });
+
+      const stokAkhir = parseInt(barang.stok) || 0;
+      const saldoAwal = stokAkhir - totalMasuk + totalKeluar;
+      const saldoAwalRingkasan = useDateFilter ? saldoAwal : null;
+      let saldoBerjalan = saldoAwal;
+
+      const mutasiDenganSaldo = mutasiRows.map((row) => {
+        const qty = parseInt(row.jumlah) || 0;
+        const saldoSebelum = saldoBerjalan;
+
+        if (row.jenis === "masuk") saldoBerjalan += qty;
+        if (row.jenis === "keluar") saldoBerjalan -= qty;
+
+        return {
+          ...row,
+          jumlah: qty,
+          saldo_sebelum: saldoSebelum,
+          saldo_setelah: saldoBerjalan
+        };
+      });
+
+      return callback(null, {
+        barang: {
+          id: barang.id,
+          kode_barang: barang.kode_barang,
+          nama_barang: barang.nama_barang,
+          satuan: barang.satuan
+        },
+        summary: {
+          saldo_awal_estimasi: saldoAwalRingkasan,
+          total_masuk: totalMasuk,
+          total_keluar: totalKeluar,
+          stok_akhir: stokAkhir,
+          periode: useDateFilter ? { start: startDate, end: endDate } : null
+        },
+        mutasi: mutasiDenganSaldo
+      });
     });
+  });
+};
 
-    };
+// =============================
+// ambil semua barang
+// =============================
+exports.getBarang = (req,res)=>{
 
-    exports.tambahBarang = async (req,res)=>{
+  const sql = `
+    SELECT 
+      b.*, 
+      k.nama_kategori,
+      GREATEST(0, (b.stok - IFNULL((
+          SELECT SUM(pd.jumlah) 
+          FROM pengajuan_detail pd
+          JOIN pengajuan p ON pd.pengajuan_id = p.id
+          WHERE pd.barang_id = b.id 
+          AND p.status IN ('pending_assessment', 'pending_manager', 'pending_gudang')
+      ), 0))) as stok_tersedia
+    FROM barang b
+    JOIN kategori_barang k ON b.kategori_id = k.id
+    WHERE b.is_deleted = 0
+  `;
 
-    try{
+db.query(sql,(err,result)=>{
+    if(err){
+        return res.status(500).json(err);
+    }
 
-    const {
-    kode_barang,
-    nama_barang,
-    kategori_id,
-    satuan,
-    stok,
-    stok_minimum,
-    lokasi_rak
-    } = req.body;
+    res.json(result);
+});
 
-    const foto = req.file ? req.file.filename : null;
+};
 
-    // generate QR
-    const qrData = JSON.stringify({
-    kode_barang:kode_barang
-    });
+// =============================
+// TAMBAH BARANG (FIX AUTO KODE)
+// =============================
+exports.tambahBarang = async (req,res)=>{
 
-    const qrCode = await QRCode.toDataURL(qrData);
+try{
 
-    const sql = `
-    INSERT INTO barang
-    (kode_barang,nama_barang,kategori_id,satuan,stok,stok_minimum,lokasi_rak,foto,qr_code)
-    VALUES (?,?,?,?,?,?,?,?,?)
-    `;
+let {
+kode_barang,
+nama_barang,
+kategori_id,
+satuan,
+stok,
+stok_minimum,
+lokasi_rak
+} = req.body;
 
-    db.query(sql,
-    [
-    kode_barang,
-    nama_barang,
-    kategori_id,
-    satuan,
-    stok,
-    stok_minimum,
-    lokasi_rak,
-    foto,
-    qrCode
-    ],
-    (err,result)=>{
+// 🔥 FIX NULL kode_barang
+if (!kode_barang || kode_barang === "null" || kode_barang === "") {
+  kode_barang = generateKodeBarang();
+}
+
+const foto = req.file ? req.file.filename : null;
+
+// QR
+const qrData = JSON.stringify({
+  kode_barang: kode_barang
+});
+
+const qrCode = await QRCode.toDataURL(qrData);
+
+const sql = `
+INSERT INTO barang
+(kode_barang,nama_barang,kategori_id,satuan,stok,stok_minimum,lokasi_rak,foto,qr_code)
+VALUES (?,?,?,?,?,?,?,?,?)
+`;
+
+db.query(sql,
+[
+kode_barang,
+nama_barang,
+kategori_id,
+satuan,
+stok,
+stok_minimum,
+lokasi_rak,
+foto,
+qrCode
+],
+(err,result)=>{
+
+if(err){
+return res.status(500).json(err);
+}
+
+res.json({
+message:"Barang berhasil ditambahkan",
+kode_barang // 🔥 kirim balik
+});
+
+});
+
+}catch(err){
+
+res.status(500).json(err);
+
+}
+
+};
+
+// =============================
+exports.getBarangById = (req,res)=>{
+
+const id = req.params.id;
+
+const sql = "SELECT * FROM barang WHERE id=? AND is_deleted=0";
+
+db.query(sql,[id],(err,result)=>{
 
     if(err){
-    return res.status(500).json(err);
+        return res.status(500).json(err);
     }
 
-    res.json({
-    message:"Barang berhasil ditambahkan"
-    });
+    res.json(result[0]);
 
-    });
+});
 
-    }catch(err){
+};
 
-    res.status(500).json(err);
-
-    }
-
-    };
-
-
-    exports.getBarangById = (req,res)=>{
-
-    const id = req.params.id;
-
-    const sql = "SELECT * FROM barang WHERE id=?";
-
-    db.query(sql,[id],(err,result)=>{
-
-        if(err){
-            return res.status(500).json(err);
-        }
-
-        res.json(result[0]);
-
-    });
-
-    };
-
-    exports.updateBarang = (req,res)=>{
+// =============================
+exports.updateBarang = (req,res)=>{
 
 const id = req.params.id;
 
 const {
-  nama_barang,
-  kategori_id,
-  satuan,
-  stok,
-  stok_minimum,
-  lokasi_rak
+nama_barang,
+kategori_id,
+satuan,
+stok,
+stok_minimum,
+lokasi_rak
 } = req.body;
 
 let foto = null;
 
 if(req.file){
-  foto = req.file.filename;
+foto = req.file.filename;
 }
 
 const sql = `
@@ -136,220 +273,355 @@ WHERE id = ?
 `;
 
 db.query(sql,[
-  nama_barang,
-  kategori_id,
-  satuan,
-  stok,
-  stok_minimum,
-  lokasi_rak,
-  foto,
-  id
+nama_barang,
+kategori_id,
+satuan,
+stok,
+stok_minimum,
+lokasi_rak,
+foto,
+id
 ],(err,result)=>{
+
+if(err){
+return res.status(500).json(err);
+}
+
+res.json({
+message:"Barang berhasil diupdate"
+});
+
+});
+
+};
+
+// =============================
+exports.deleteBarang = (req,res)=>{
+
+const id = req.params.id;
+
+const sql = "UPDATE barang SET is_deleted = 1 WHERE id=?";
+
+db.query(sql,[id],(err,result)=>{
 
 if(err){
   return res.status(500).json(err);
 }
 
 res.json({
-  message:"Barang berhasil diupdate"
+message:"Barang berhasil dihapus (soft delete)"
 });
 
 });
 
 };
-    exports.deleteBarang = (req,res)=>{
 
-    const id = req.params.id;
+// =============================
+exports.generateQR = async (req,res)=>{
 
-    const sql = "DELETE FROM barang WHERE id=?";
+const {id} = req.params;
 
-    db.query(sql,[id],(err,result)=>{
+const sql = "SELECT * FROM barang WHERE id=? AND is_deleted=0";
 
-        if(err){
-            return res.status(500).json(err);
-        }
+db.query(sql,[id], async (err,result)=>{
 
-        res.json({
-            message:"Barang berhasil dihapus"
-        });
+if(err) return res.status(500).json(err);
 
-    });
+if(result.length === 0){
+return res.status(404).json({message:"Barang tidak ditemukan"});
+}
 
-    };
+const barang = result[0];
 
-    exports.generateQR = async (req,res)=>{
+const qrData = JSON.stringify({
+  kode_barang: barang.kode_barang
+});
 
-    const {id} = req.params;
+const qr = await QRCode.toDataURL(qrData);
 
-    const sql = "SELECT * FROM barang WHERE id=?";
+res.json({
+barang:barang.nama_barang,
+qr_code:qr
+});
 
-    db.query(sql,[id], async (err,result)=>{
+});
 
-    if(err) return res.status(500).json(err);
+};
 
-    if(result.length === 0){
-    return res.status(404).json({message:"Barang tidak ditemukan"});
-    }
+// =============================
+exports.searchBarang = (req,res)=>{
 
-    const barang = result[0];
+const {keyword} = req.query;
 
-    const qrData = {
-    id:barang.id,
-    nama_barang:barang.nama_barang,
-    kode_barang:barang.kode_barang
-    };
+const sql = `
+SELECT * FROM barang
+WHERE (nama_barang LIKE ? OR kode_barang LIKE ?)
+AND is_deleted = 0
+`;
 
-    const qr = await QRCode.toDataURL(JSON.stringify(qrData));
+const search = `%${keyword}%`;
 
-    res.json({
-    barang:barang.nama_barang,
-    qr_code:qr
-    });
+db.query(sql,[search,search],(err,result)=>{
 
-    });
+if(err) return res.status(500).json(err);
 
-    };
+res.json(result);
 
-    exports.searchBarang = (req,res)=>{
+});
 
-    const {keyword} = req.query;
+};
 
-    const sql = `
-    SELECT * FROM barang
-    WHERE nama_barang LIKE ?
-    OR kode_barang LIKE ?
-    `;
+// =============================
+exports.getStokMinimum = (req,res)=>{
 
-    const search = `%${keyword}%`;
+const sql = `
+SELECT nama_barang,stok,stok_minimum
+FROM barang
+WHERE stok <= stok_minimum AND is_deleted = 0
+`;
 
-    db.query(sql,[search,search],(err,result)=>{
+db.query(sql,(err,result)=>{
 
-    if(err) return res.status(500).json(err);
+if(err) return res.status(500).json(err);
 
-    res.json(result);
+res.json(result);
 
-    });
+});
 
-    };
+};
 
-    exports.getStokMinimum = (req,res)=>{
+// =============================
+exports.getBarangPagination = (req,res)=>{
 
-    const sql = `
-    SELECT nama_barang,stok,stok_minimum
-    FROM barang
-    WHERE stok <= stok_minimum
-    `;
+const page = parseInt(req.query.page) || 1;
+const limit = parseInt(req.query.limit) || 10;
 
-    db.query(sql,(err,result)=>{
+const offset = (page - 1) * limit;
 
-    if(err) return res.status(500).json(err);
-
-    res.json(result);
-
-    });
-
-    };
-
-
-    exports.getBarangPagination = (req,res)=>{
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-
-    const offset = (page - 1) * limit;
-
-    const sql = `
-    SELECT * FROM barang
+  const sql = `
+    SELECT 
+      b.*, 
+      (b.stok - IFNULL((
+          SELECT SUM(pd.jumlah) 
+          FROM pengajuan_detail pd
+          JOIN pengajuan p ON pd.pengajuan_id = p.id
+          WHERE pd.barang_id = b.id 
+          AND p.status IN ('pending_assessment', 'pending_manager', 'pending_gudang')
+      ), 0)) as stok_tersedia
+    FROM barang b
+    WHERE b.is_deleted = 0
     LIMIT ? OFFSET ?
-    `;
+  `;
 
-    db.query(sql,[limit,offset],(err,data)=>{
+db.query(sql,[limit,offset],(err,data)=>{
 
-    if(err) return response.error(res,"Gagal mengambil data");
+if(err) return response.error(res,"Gagal mengambil data");
 
-    const countQuery = "SELECT COUNT(*) as total FROM barang";
+const countQuery = "SELECT COUNT(*) as total FROM barang WHERE is_deleted = 0";
 
-    db.query(countQuery,(err2,count)=>{
+db.query(countQuery,(err2,count)=>{
 
-    const total = count[0].total;
+const total = count[0].total;
 
-    const meta = {
+const meta = {
+page:page,
+limit:limit,
+total_data:total,
+total_page:Math.ceil(total/limit)
+};
 
-    page:page,
-    limit:limit,
-    total_data:total,
-    total_page:Math.ceil(total/limit)
+response.success(res,"Data barang berhasil diambil",data,meta);
 
-    };
+});
 
-    response.success(res,"Data barang berhasil diambil",data,meta);
+});
 
-    });
+};
 
-    });
+// =============================
+// KARTU STOK PER BARANG
+// =============================
+exports.getKartuStokByBarang = (req, res) => {
+  const barangId = parseInt(req.params.id);
+  const { start, end } = req.query;
 
-    };
+  if (!barangId) {
+    return res.status(400).json({ message: "ID barang tidak valid" });
+  }
 
-    exports.createBarang = async (req,res)=>{
+  if ((start && !end) || (!start && end)) {
+    return res.status(400).json({ message: "Filter tanggal harus lengkap (start dan end)" });
+  }
 
-    const {nama_barang,kode_barang,stok} = req.body;
-
-    const foto = req.file ? req.file.filename : null;
-
-    const qrData = JSON.stringify({
-    kode_barang:kode_barang
-    });
-
-    const qrCode = await QRCode.toDataURL(qrData);
-
-    const sql = `
-    INSERT INTO barang
-    (nama_barang,kode_barang,stok,foto,qr_code)
-    VALUES (?,?,?,?,?)
-    `;
-
-    db.query(sql,[nama_barang,kode_barang,stok,foto,qrCode],(err)=>{
-
-    if(err) return res.status(500).json(err);
-
-    res.json({
-    message:"Barang berhasil ditambahkan"
-    });
-
-    });
-
-    };
-
-    exports.downloadQR = (req,res)=>{
-
-    const {id} = req.params;
-
-    const sql = "SELECT qr_code FROM barang WHERE id=?";
-
-    db.query(sql,[id],(err,result)=>{
-
-    if(err) return res.status(500).json(err);
-
-    if(result.length === 0){
-    return res.status(404).json({message:"Barang tidak ditemukan"});
+  getKartuStokData(barangId, start, end, (err, data) => {
+    if (err) return res.status(500).json(err);
+    if (!data) {
+      return res.status(404).json({ message: "Barang tidak ditemukan" });
     }
+    return res.json(data);
+  });
+};
 
-    const qr = result[0].qr_code;
+exports.exportKartuStokExcel = (req, res) => {
+  const barangId = parseInt(req.params.id);
+  const { start, end } = req.query;
 
-    if(!qr){
-    return res.status(400).json({
-    message:"QR code belum tersedia"
-    });
+  if (!barangId) {
+    return res.status(400).json({ message: "ID barang tidak valid" });
+  }
+
+  if ((start && !end) || (!start && end)) {
+    return res.status(400).json({ message: "Filter tanggal harus lengkap (start dan end)" });
+  }
+
+  getKartuStokData(barangId, start, end, (err, data) => {
+    if (err) return res.status(500).json(err);
+    if (!data) return res.status(404).json({ message: "Barang tidak ditemukan" });
+
+    const rows = data.mutasi.map((item) => ({
+      tanggal: item.tanggal,
+      jenis: item.jenis,
+      qty: item.jumlah,
+      saldo_sebelum: item.saldo_sebelum,
+      saldo_setelah: item.saldo_setelah,
+      referensi_pengajuan: item.pengajuan_id || "-",
+      keterangan: item.keterangan || "-"
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "KartuStok");
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    const fileName = `kartu_stok_${data.barang.kode_barang}.xlsx`;
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    return res.send(buffer);
+  });
+};
+
+exports.exportKartuStokPDF = (req, res) => {
+  const barangId = parseInt(req.params.id);
+  const { start, end } = req.query;
+
+  if (!barangId) {
+    return res.status(400).json({ message: "ID barang tidak valid" });
+  }
+
+  if ((start && !end) || (!start && end)) {
+    return res.status(400).json({ message: "Filter tanggal harus lengkap (start dan end)" });
+  }
+
+  getKartuStokData(barangId, start, end, (err, data) => {
+    if (err) return res.status(500).json(err);
+    if (!data) return res.status(404).json({ message: "Barang tidak ditemukan" });
+
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    const fileName = `kartu_stok_${data.barang.kode_barang}.pdf`;
+
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    doc.pipe(res);
+
+    doc.fontSize(16).text("Kartu Stok Barang", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(11).text(`Barang: ${data.barang.nama_barang} (${data.barang.kode_barang})`);
+    doc.text(`Satuan: ${data.barang.satuan || "-"}`);
+    if (data.summary.periode) {
+      doc.text(`Periode: ${data.summary.periode.start} s/d ${data.summary.periode.end}`);
+    } else {
+      doc.text("Periode: Semua data");
     }
+    doc.text(`Stok akhir: ${data.summary.stok_akhir}`);
+    doc.moveDown(0.8);
 
-    const base64Data = qr.replace(/^data:image\/png;base64,/,"");
-
-    const img = Buffer.from(base64Data,"base64");
-
-    res.setHeader("Content-Type","image/png");
-
-    res.send(img);
-
+    data.mutasi.forEach((item, idx) => {
+      doc
+        .fontSize(10)
+        .text(
+          `${idx + 1}. ${item.tanggal} | ${item.jenis.toUpperCase()} | qty ${item.jumlah} | saldo ${item.saldo_sebelum} -> ${item.saldo_setelah} | ref: ${item.pengajuan_id || "-"} | ${item.keterangan || "-"}`
+        );
+      if (doc.y > 760) doc.addPage();
     });
 
-    };
+    doc.end();
+  });
+};
+
+// =============================
+exports.downloadQR = (req,res)=>{
+
+const {id} = req.params;
+
+const sql = "SELECT qr_code FROM barang WHERE id=?";
+
+db.query(sql,[id],(err,result)=>{
+
+if(err) return res.status(500).json(err);
+
+if(result.length === 0){
+return res.status(404).json({message:"Barang tidak ditemukan"});
+}
+
+const qr = result[0].qr_code;
+
+if(!qr){
+return res.status(400).json({
+message:"QR code belum tersedia"
+});
+}
+
+const base64Data = qr.replace(/^data:image\/png;base64,/,"");
+
+const img = Buffer.from(base64Data,"base64");
+
+res.setHeader("Content-Type","image/png");
+
+res.send(img);
+
+});
+
+};
+
+// =============================
+// SCAN QR
+// =============================
+exports.scanQR = (req, res) => {
+try {
+let { kode_barang } = req.body;
+
+if (!kode_barang) {
+  return res.status(400).json({
+    message: "kode_barang wajib dikirim"
+  });
+}
+
+kode_barang = kode_barang.trim();
+
+console.log("SCAN MASUK:", kode_barang);
+
+const sql = `
+  SELECT * FROM barang WHERE kode_barang = ? AND is_deleted = 0
+`;
+
+db.query(sql, [kode_barang], (err, result) => {
+
+  if (err) {
+    return res.status(500).json(err);
+  }
+
+  if (result.length === 0) {
+    return res.status(404).json({
+      message: "Barang tidak ditemukan"
+    });
+  }
+
+  res.json({
+    message: "Scan berhasil",
+    data: result[0]
+  });
+
+});
+
+} catch (err) {
+res.status(500).json(err);
+}
+};
