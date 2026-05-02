@@ -15,6 +15,7 @@ router.put("/profile/change-password", verifyToken, userController.changeMyPassw
 // ADMIN ONLY: KELOLA USER
 // =============================
 router.get("/", verifyToken, allowRoles("admin"), userController.getUsers);
+router.get("/next-nup", verifyToken, allowRoles("admin"), userController.getNextNup);
 router.get("/roles", verifyToken, allowRoles("admin"), userController.getRoles);
 router.post("/", verifyToken, allowRoles("admin"), activityLogger("Tambah", "User"), userController.createUser);
 router.put("/:id", verifyToken, allowRoles("admin"), activityLogger("Edit", "User"), userController.updateUser);

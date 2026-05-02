@@ -1,71 +1,74 @@
-    const db = require("../config/db");
-    const bcrypt = require("bcryptjs");
-    const jwt = require("jsonwebtoken");
+const db = require("../config/db");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
-    exports.register = (req,res)=>{
-        
-        const {nama,email,password,role_id} = req.body;
+// Registrasi Mandiri dihapus untuk keamanan sistem internal. 
+// User hanya bisa dibuat oleh Admin melalui menu Manajemen User.
 
-        const hashedPassword = bcrypt.hashSync(password,8);
+exports.login = (req,res)=>{
 
-        const sql = "INSERT INTO users (nama,email,password,role_id) VALUES (?,?,?,?)";
+const {nup,password} = req.body;
 
-        db.query(sql,[nama,email,hashedPassword,role_id],(err,result)=>{
-            if(err){
-                return res.status(500).json(err);
-            }
+const sql = `
+SELECT users.*, roles.nama_role
+FROM users
+JOIN roles ON users.role_id = roles.id
+WHERE nup = ?
+`;
 
-            res.json({
-                message:"User berhasil dibuat"
-            });
-        });
+db.query(sql,[nup],(err,result)=>{
 
-    };
+    if(err) return res.status(500).json(err);
 
-    exports.login = (req,res)=>{
+    if(result.length === 0){
+        return res.status(404).json({message:"User tidak ditemukan"});
+    }
 
-    const {email,password} = req.body;
+    const user = result[0];
 
-    const sql = `
-    SELECT users.*, roles.nama_role
-    FROM users
-    JOIN roles ON users.role_id = roles.id
-    WHERE email = ?
-    `;
+    const validPassword = bcrypt.compareSync(password,user.password);
 
-    db.query(sql,[email],(err,result)=>{
+    if(!validPassword){
+        return res.status(401).json({message:"Password salah"});
+    }
 
-        if(err) return res.status(500).json(err);
+    const token = jwt.sign(
+        {id:user.id,role:user.nama_role},
+        process.env.JWT_SECRET || "secretkey",
+        {expiresIn:"1d"}
+    );
 
-        if(result.length === 0){
-            return res.status(404).json({message:"User tidak ditemukan"});
+    res.json({
+        message:"Login berhasil",
+        token:token,
+        user:{
+            id:user.id,
+            nama:user.nama,
+            nup:user.nup,
+            role:user.nama_role
         }
-
-        const user = result[0];
-
-        const validPassword = bcrypt.compareSync(password,user.password);
-
-        if(!validPassword){
-            return res.status(401).json({message:"Password salah"});
-        }
-
-        const token = jwt.sign(
-            {id:user.id,role:user.nama_role},
-            "secretkey",
-            {expiresIn:"1d"}
-        );
-
-        res.json({
-            message:"Login berhasil",
-            token:token,
-            user:{
-                id:user.id,
-                nama:user.nama,
-                email:user.email,
-                role:user.nama_role
-            }
-        });
-
     });
 
-    };
+});
+
+};
+
+exports.checkNup = (req,res) => {
+    const { nup } = req.params;
+    const sql = `
+        SELECT users.nama, roles.nama_role as role 
+        FROM users 
+        JOIN roles ON users.role_id = roles.id 
+        WHERE nup = ?
+    `;
+    db.query(sql, [nup], (err, result) => {
+        if (err) return res.status(500).json(err);
+        if (result.length === 0) {
+            return res.status(404).json({ message: "NUP tidak ditemukan" });
+        }
+        res.json({ 
+            nama: result[0].nama,
+            role: result[0].role
+        });
+    });
+};

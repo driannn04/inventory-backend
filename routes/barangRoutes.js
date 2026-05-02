@@ -15,14 +15,15 @@ router.get("/kartu-stok/:id",  verifyToken, barangController.getKartuStokByBaran
 router.get("/kartu-stok/:id/export/excel", verifyToken, barangController.exportKartuStokExcel);
 router.get("/kartu-stok/:id/export/pdf", verifyToken, barangController.exportKartuStokPDF);
 router.get("/pagination",      verifyToken, barangController.getBarangPagination);
+router.get("/pending-orders/:id", verifyToken, barangController.getPendingOrdersByBarang);
 
 // ✅ GENERAL — semua role bisa lihat barang
 router.get("/",    verifyToken, barangController.getBarang);
 router.get("/:id", verifyToken, barangController.getBarangById);
 
-// ✅ Tambah/edit/hapus — hanya admin
-router.post("/",    verifyToken, allowRoles("admin"), activityLogger("Tambah", "Barang"), upload.single("foto"), barangController.tambahBarang);
-router.put("/:id",  verifyToken, allowRoles("admin"), activityLogger("Edit", "Barang"), upload.single("foto"), barangController.updateBarang);
-router.delete("/:id", verifyToken, allowRoles("admin"), activityLogger("Hapus", "Barang"), barangController.deleteBarang);
+// ✅ Tambah/edit/hapus — admin & gudang bisa
+router.post("/",    verifyToken, allowRoles("admin", "gudang"), activityLogger("Tambah", "Barang"), upload.single("foto"), barangController.tambahBarang);
+router.put("/:id",  verifyToken, allowRoles("admin", "gudang"), activityLogger("Edit", "Barang"), upload.single("foto"), barangController.updateBarang);
+router.delete("/:id", verifyToken, allowRoles("admin", "gudang"), activityLogger("Hapus", "Barang"), barangController.deleteBarang);
 
 module.exports = router;

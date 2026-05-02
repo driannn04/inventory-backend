@@ -45,7 +45,7 @@ exports.exportBarangKeluarExcel = (req, res) => {
   const params = [];
 
   if (start && end) {
-    sql += " WHERE sk.tanggal BETWEEN ? AND ?";
+    sql += " WHERE DATE(sk.tanggal) BETWEEN ? AND ?";
     params.push(start, end);
   }
 
@@ -75,7 +75,7 @@ exports.exportBarangKeluarPDF = async (req, res) => {
   const params = [];
 
   if (start && end) {
-    sql += " WHERE sk.tanggal BETWEEN ? AND ?";
+    sql += " WHERE DATE(sk.tanggal) BETWEEN ? AND ?";
     params.push(start, end);
   }
 
@@ -122,7 +122,7 @@ exports.exportBarangMasukExcel = (req, res) => {
   const params = [];
 
   if (start && end) {
-    sql += " WHERE sm.tanggal BETWEEN ? AND ?";
+    sql += " WHERE DATE(sm.tanggal) BETWEEN ? AND ?";
     params.push(start, end);
   }
 
@@ -152,7 +152,7 @@ exports.exportBarangMasukPDF = async (req, res) => {
   const params = [];
 
   if (start && end) {
-    sql += " WHERE sm.tanggal BETWEEN ? AND ?";
+    sql += " WHERE DATE(sm.tanggal) BETWEEN ? AND ?";
     params.push(start, end);
   }
 

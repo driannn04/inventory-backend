@@ -24,7 +24,7 @@ const sql = `
 SELECT b.nama_barang,sm.jumlah,sm.tanggal
 FROM stok_masuk sm
 JOIN barang b ON sm.barang_id=b.id
-WHERE sm.tanggal BETWEEN ? AND ?
+WHERE DATE(sm.tanggal) BETWEEN ? AND ?
 `;
 
 db.query(sql,[start,end],(err,result)=>{
@@ -45,7 +45,7 @@ const sql = `
 SELECT b.nama_barang,sk.jumlah,sk.tanggal
 FROM stok_keluar sk
 JOIN barang b ON sk.barang_id=b.id
-WHERE sk.tanggal BETWEEN ? AND ?
+WHERE DATE(sk.tanggal) BETWEEN ? AND ?
 `;
 
 db.query(sql,[start,end],(err,result)=>{

@@ -8,11 +8,11 @@ const activityLogger = require("../middlewares/activityLogger");
 // ✅ FIX URUTAN ROUTE: spesifik dulu, baru dynamic /:id
 // Kalau /:id di atas, Express tangkap /approve & /history sebagai id
 
-// POST buat pengajuan — staff & admin
+// POST buat pengajuan — staff, admin, asisten_manager, manager
 router.post(
   "/",
   verifyToken,
-  allowRoles("staff", "admin", "manager"),
+  allowRoles("staff", "admin", "asisten_manager", "manager"),
   activityLogger("Tambah", "Pengajuan Baru"),
   pengajuanController.createPengajuan
 );
@@ -24,12 +24,20 @@ router.get(
   pengajuanController.getPengajuan
 );
 
+// GET stats khusus staff
+router.get(
+  "/my-stats",
+  verifyToken,
+  allowRoles("staff"),
+  pengajuanController.getStaffStats
+);
+
 // ✅ SPESIFIK DULU sebelum /:id
 // POST approve
 router.post(
   "/approve",
   verifyToken,
-  allowRoles("asesmen", "manager", "gudang", "admin"),
+  allowRoles("asisten_manager", "manager", "gudang", "admin"),
   activityLogger("Approval", "Konfirmasi Pengajuan"),
   pengajuanController.approvePengajuan
 );
@@ -38,7 +46,7 @@ router.post(
 router.post(
   "/reject",
   verifyToken,
-  allowRoles("asesmen", "manager", "gudang", "admin"),
+  allowRoles("asisten_manager", "manager", "gudang", "admin"),
   activityLogger("Penolakan", "Pembatalan Pengajuan"),
   pengajuanController.rejectPengajuan
 );
@@ -55,6 +63,24 @@ router.get(
   "/:id",
   verifyToken,
   pengajuanController.getPengajuanById
+);
+
+// ✅ UPDATE pengajuan — staff, admin, asisten_manager, manager
+router.put(
+  "/:id",
+  verifyToken,
+  allowRoles("staff", "admin", "asisten_manager", "manager"),
+  activityLogger("Ubah", "Update Pengajuan"),
+  pengajuanController.updatePengajuan
+);
+
+// ✅ DELETE pengajuan — staff (owner), admin, asisten_manager, manager
+router.delete(
+  "/:id",
+  verifyToken,
+  allowRoles("staff", "admin", "asisten_manager", "manager"),
+  activityLogger("Hapus", "Batalkan Pengajuan"),
+  pengajuanController.deletePengajuan
 );
 
 module.exports = router;

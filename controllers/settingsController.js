@@ -24,51 +24,66 @@ exports.updateSettings = (req, res) => {
     return res.status(400).json({ message: "Data tidak valid" });
   }
 
-  db.beginTransaction((err) => {
+  db.getConnection((err, conn) => {
     if (err) return res.status(500).json(err);
 
-    const promises = Object.entries(newSettings).map(([key, value]) => {
-      return new Promise((resolve, reject) => {
-        const sql = "UPDATE system_settings SET setting_value = ? WHERE setting_key = ?";
-        db.query(sql, [value, key], (err2) => {
-          if (err2) reject(err2);
-          else resolve();
+    conn.beginTransaction((err) => {
+      if (err) { conn.release(); return res.status(500).json(err); }
+
+      const promises = Object.entries(newSettings).map(([key, value]) => {
+        return new Promise((resolve, reject) => {
+          const sql = "UPDATE system_settings SET setting_value = ? WHERE setting_key = ?";
+          conn.query(sql, [value, key], (err2) => {
+            if (err2) reject(err2);
+            else resolve();
+          });
         });
       });
-    });
 
-    Promise.all(promises)
-      .then(() => {
-        db.commit((err3) => {
-          if (err3) db.rollback(() => res.status(500).json(err3));
-          else res.json({ message: "Pengaturan berhasil diperbarui" });
-        });
-      })
-      .catch((err4) => db.rollback(() => res.status(500).json(err4)));
+      Promise.all(promises)
+        .then(() => {
+          conn.commit((err3) => {
+            if (err3) return conn.rollback(() => { conn.release(); res.status(500).json(err3); });
+            conn.release();
+            res.json({ message: "Pengaturan berhasil diperbarui" });
+          });
+        })
+        .catch((err4) => conn.rollback(() => { conn.release(); res.status(500).json(err4); }));
+    });
   });
 };
 
 // ==========================================
 // UPLOAD LOGO
 // =============================
-exports.uploadLogo = (req, res) => {
+exports.uploadLogo = async (req, res) => {
   const type = req.params.type; // 'app_logo' atau 'app_logo_report'
   if (!req.file) return res.status(400).json({ message: "File tidak ditemukan" });
 
-  const logoUrl = `/uploads/branding/${req.file.filename}`;
-  const sql = "UPDATE system_settings SET setting_value = ? WHERE setting_key = ?";
+  try {
+    const { processImage } = require("../utils/uploadHelper");
+    // Simpan ke category "branding" tanpa ID subfolder
+    const dbPath = await processImage(req.file, "branding");
+    
+    // Prefix dengan /uploads/ agar frontend bisa baca
+    const logoUrl = `/uploads/${dbPath}`;
+    const sql = "UPDATE system_settings SET setting_value = ? WHERE setting_key = ?";
 
-  db.query(sql, [logoUrl, type], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Logo berhasil diperbarui", url: logoUrl });
-  });
+    db.query(sql, [logoUrl, type], (err) => {
+      if (err) return res.status(500).json(err);
+      res.json({ message: "Logo berhasil diperbarui", url: logoUrl });
+    });
+  } catch (imgErr) {
+    console.error("❌ Gagal memproses logo:", imgErr.message);
+    res.status(500).json({ message: "Gagal memproses gambar" });
+  }
 };
 
 // ==========================================
 // REAL SQL BACKUP GENERATOR
 // ==========================================
 exports.downloadBackup = async (req, res) => {
-  const tables = ['users', 'roles', 'kategori_barang', 'supplier', 'barang', 'stok_masuk', 'stok_keluar', 'pengajuan', 'pengajuan_detail', 'system_settings'];
+  const tables = ['users', 'roles', 'kategori_barang', 'barang', 'satuan', 'stok_masuk', 'stok_keluar', 'pengajuan', 'pengajuan_detail', 'system_settings', 'notifikasi'];
   let sqlDump = `-- PDAM TIRTA PAKUAN DATABASE BACKUP\n-- Generated: ${new Date().toLocaleString()}\n\n`;
   sqlDump += "SET SQL_MODE = \"NO_AUTO_VALUE_ON_ZERO\";\nSTART TRANSACTION;\n\n";
 
@@ -118,4 +133,24 @@ exports.getSettingsByCategory = (req, res) => {
     result.forEach(row => settings[row.setting_key] = row.setting_value);
     res.json(settings);
   });
+};
+
+// ==========================================
+// DANGER ZONE: CLEAR CACHE
+// ==========================================
+exports.clearCache = (req, res) => {
+  try {
+    const sharp = require("sharp");
+    // Bersihkan cache internal Sharp (pemrosesan gambar)
+    sharp.cache(false);
+    sharp.cache(true);
+    
+    // 🔥 LOG AKTIVITAS
+    const { logActivity } = require("../utils/activityLogger");
+    logActivity(req.user.id, "CLEAN", "SYSTEM", "Membersihkan cache sistem dan library gambar");
+
+    res.json({ message: "Cache sistem berhasil dibersihkan" });
+  } catch (err) {
+    res.status(500).json({ message: "Gagal membersihkan cache", error: err.message });
+  }
 };

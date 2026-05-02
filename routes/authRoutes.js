@@ -4,8 +4,8 @@ const authController = require("../controllers/authController");
 const { verifyToken } = require("../middlewares/auth");
 
 // Public
-router.post("/register", authController.register);
 router.post("/login",    authController.login);
+router.get("/check-nup/:nup", authController.checkNup);
 
 // ✅ Tambah: cek token aktif (dipakai frontend saat refresh halaman)
 router.get("/me", verifyToken, (req, res) => {

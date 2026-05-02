@@ -6,7 +6,7 @@ const bcrypt = require("bcryptjs");
 // =============================
 exports.getUsers = (req, res) => {
   const sql = `
-    SELECT u.id, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.created_at,
+    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.created_at,
            r.nama_role as role
     FROM users u
     JOIN roles r ON u.role_id = r.id
@@ -26,7 +26,7 @@ exports.getUserById = (req, res) => {
   const { id } = req.params;
 
   const sql = `
-    SELECT u.id, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.role_id, u.created_at,
+    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.role_id, u.created_at,
            r.nama_role as role
     FROM users u
     JOIN roles r ON u.role_id = r.id
@@ -44,27 +44,27 @@ exports.getUserById = (req, res) => {
 // 3. CREATE USER
 // =============================
 exports.createUser = (req, res) => {
-  const { nama, email, password, role_id, no_telp, jabatan, departemen } = req.body;
+  const { nup, nama, email, password, role_id, no_telp, jabatan, departemen } = req.body;
 
-  if (!nama || !email || !password || !role_id) {
-    return res.status(400).json({ message: "Nama, email, password, dan role wajib diisi" });
+  if (!nup || !nama || !role_id || !password) {
+    return res.status(400).json({ message: "NUP, Nama, Password, dan Role wajib diisi" });
   }
 
-  // Cek duplikat email
-  db.query("SELECT id FROM users WHERE email = ?", [email], (err, existing) => {
+  // Cek duplikat NUP
+  db.query("SELECT id FROM users WHERE nup = ?", [nup], (err, existing) => {
     if (err) return res.status(500).json(err);
     if (existing.length > 0) {
-      return res.status(400).json({ message: "Email sudah terdaftar" });
+      return res.status(400).json({ message: "NUP sudah terdaftar" });
     }
 
     const hashedPassword = bcrypt.hashSync(password, 8);
 
     const sql = `
-      INSERT INTO users (nama, email, password, role_id, no_telp, jabatan, departemen)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (nup, nama, email, password, role_id, no_telp, jabatan, departemen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    db.query(sql, [nama, email, hashedPassword, role_id, no_telp || null, jabatan || null, departemen || null], (err2, result) => {
+    db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan || null, departemen || null], (err2, result) => {
       if (err2) return res.status(500).json(err2);
       res.json({ message: "User berhasil ditambahkan", id: result.insertId });
     });
@@ -76,25 +76,25 @@ exports.createUser = (req, res) => {
 // =============================
 exports.updateUser = (req, res) => {
   const { id } = req.params;
-  const { nama, email, role_id, no_telp, jabatan, departemen } = req.body;
+  const { nup, nama, email, role_id, no_telp, jabatan, departemen } = req.body;
 
-  if (!nama || !email || !role_id) {
-    return res.status(400).json({ message: "Nama, email, dan role wajib diisi" });
+  if (!nup || !nama || !role_id) {
+    return res.status(400).json({ message: "NUP, Nama, dan Role wajib diisi" });
   }
 
-  // Cek duplikat email (kecuali user ini sendiri)
-  db.query("SELECT id FROM users WHERE email = ? AND id != ?", [email, id], (err, existing) => {
+  // Cek duplikat NUP (kecuali user ini sendiri)
+  db.query("SELECT id FROM users WHERE nup = ? AND id != ?", [nup, id], (err, existing) => {
     if (err) return res.status(500).json(err);
     if (existing.length > 0) {
-      return res.status(400).json({ message: "Email sudah digunakan user lain" });
+      return res.status(400).json({ message: "NUP sudah digunakan user lain" });
     }
 
     const sql = `
-      UPDATE users SET nama=?, email=?, role_id=?, no_telp=?, jabatan=?, departemen=?
+      UPDATE users SET nup=?, nama=?, email=?, role_id=?, no_telp=?, jabatan=?, departemen=?
       WHERE id=?
     `;
 
-    db.query(sql, [nama, email, role_id, no_telp || null, jabatan || null, departemen || null, id], (err2) => {
+    db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan || null, departemen || null, id], (err2) => {
       if (err2) return res.status(500).json(err2);
       res.json({ message: "User berhasil diupdate" });
     });
@@ -165,7 +165,7 @@ exports.getMyProfile = (req, res) => {
   const userId = req.user.id;
 
   const sql = `
-    SELECT u.id, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.created_at,
+    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.created_at,
            r.nama_role as role
     FROM users u
     JOIN roles r ON u.role_id = r.id
@@ -227,5 +227,23 @@ exports.changeMyPassword = (req, res) => {
       if (err2) return res.status(500).json(err2);
       res.json({ message: "Password berhasil diubah" });
     });
+  });
+};
+
+// =============================
+// 11. GET NEXT NUP SUGGESTION
+// =============================
+exports.getNextNup = (req, res) => {
+  const sql = "SELECT nup FROM users WHERE nup REGEXP '^[0-9]+$' ORDER BY CAST(nup AS UNSIGNED) DESC LIMIT 1";
+  db.query(sql, (err, result) => {
+    if (err) return res.status(500).json(err);
+    
+    let nextNup = "0001";
+    if (result.length > 0) {
+      const lastNup = parseInt(result[0].nup);
+      nextNup = (lastNup + 1).toString().padStart(4, '0');
+    }
+    
+    res.json({ nextNup });
   });
 };

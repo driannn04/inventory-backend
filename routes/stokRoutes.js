@@ -19,7 +19,7 @@ router.get("/masuk", verifyToken, allowRoles("gudang", "admin", "manager"), getS
 router.get("/masuk/:id", verifyToken, allowRoles("gudang", "admin", "manager"), getStokMasukById);
 
 // ✅ Stok keluar
-router.post("/keluar", verifyToken, allowRoles("admin"), activityLogger("Tambah", "Stok Keluar"), tambahStokKeluar);
+router.post("/keluar", verifyToken, allowRoles("gudang", "admin"), activityLogger("Tambah", "Stok Keluar"), tambahStokKeluar);
 router.get("/keluar", verifyToken, allowRoles("gudang", "admin", "manager"), getStokKeluar);
 router.get("/keluar/:id", verifyToken, allowRoles("gudang", "admin", "manager"), getStokKeluarById);
 

@@ -11,14 +11,17 @@ exports.kirimNotifikasi = (user_id, judul, pesan) => {
 
   db.query(sql, [user_id, judul, pesan], (err) => {
     if (err) {
-      console.log("Notif error:", err);
+      console.error("❌ DB Insert Notif Error:", err.message);
     } else {
       // realtime
-      if (global.io && global.onlineUsers[user_id]) {
-        global.io.to(global.onlineUsers[user_id]).emit("notif_baru", {
-          judul,
-          pesan
+      const idStr = String(user_id);
+      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
+        console.log(`📡 Sending realtime notif to User ${idStr}`);
+        global.onlineUsers[idStr].forEach(socketId => {
+          global.io.to(socketId).emit("notif_baru", { judul, pesan });
         });
+      } else {
+        console.log(`⚠️ User ${idStr} is offline, notif saved to DB.`);
       }
     }
   });
@@ -44,13 +47,15 @@ exports.kirimNotifikasiByRole = (role_nama, judul, pesan) => {
         VALUES (?, ?, ?, 0, NOW())
       `;
 
-      db.query(insert, [user.id, judul, pesan]);
+      db.query(insert, [user.id, judul, pesan], (err) => {
+         if (err) console.error("❌ DB Insert Role Notif Error:", err.message);
+      });
 
       // 🔥 REALTIME JUGA
-      if (global.io && global.onlineUsers[user.id]) {
-        global.io.to(global.onlineUsers[user.id]).emit("notif_baru", {
-          judul,
-          pesan
+      const roleIdStr = String(user.id);
+      if (global.io && global.onlineUsers && global.onlineUsers[roleIdStr]) {
+        global.onlineUsers[roleIdStr].forEach(socketId => {
+          global.io.to(socketId).emit("notif_baru", { judul, pesan });
         });
       }
     });

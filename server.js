@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -11,18 +12,23 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const laporanRoutes = require("./routes/laporanRoutes");
 const exportRoutes = require("./routes/exportRoutes");
 const notifRoutes = require("./routes/notifRoutes");
-const opnameRoutes = require("./routes/opnameRoutes");
+
 const auditRoutes = require("./routes/auditRoutes");
-const supplierRoutes = require("./routes/supplierRoutes");
+
 const userRoutes = require("./routes/userRoutes");
 const kategoriRoutes = require("./routes/kategoriRoutes");
 const settingsRoutes = require("./routes/settingsRoutes");
+const satuanRoutes = require("./routes/satuanRoutes");
 
 const requestLogger = require("./middlewares/requestLogger");
 const errorHandler = require("./middlewares/errorHandle");
 const timeLogger = require("./middlewares/timeLogger");
+const sanitizer = require("./middlewares/sanitizer");
 
 const morgan = require("morgan");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const compression = require("compression");
 
 const app = express();
 const server = http.createServer(app);
@@ -32,7 +38,8 @@ const server = http.createServer(app);
 // =============================
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: process.env.FRONTEND_URL || "*",
+    methods: ["GET", "POST"]
   },
 });
 
@@ -43,13 +50,13 @@ io.on("connection", (socket) => {
   console.log("🔌 User connected:", socket.id);
 
   socket.on("register", (user_id) => {
-    if (!global.onlineUsers[user_id]) {
-      global.onlineUsers[user_id] = [];
+    const idStr = String(user_id);
+    if (!global.onlineUsers[idStr]) {
+      global.onlineUsers[idStr] = [];
     }
 
-    global.onlineUsers[user_id].push(socket.id);
-
-    console.log("✅ User registered:", user_id);
+    global.onlineUsers[idStr].push(socket.id);
+    console.log(`✅ User registered: ${idStr} (Socket: ${socket.id})`);
   });
 
   socket.on("disconnect", () => {
@@ -61,7 +68,6 @@ io.on("connection", (socket) => {
         delete global.onlineUsers[user_id];
       }
     }
-
     console.log("❌ User disconnected:", socket.id);
   });
 });
@@ -69,14 +75,56 @@ io.on("connection", (socket) => {
 // 🔥 GLOBAL IO
 global.io = io;
 
+
 // =============================
 // MIDDLEWARE
 // =============================
-app.use(cors());
+app.use(compression()); 
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false,
+})); 
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:5173", // Tetap izinkan lokal untuk development
+  "http://localhost:3000"
+].filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+
+
+// 🔥 LIMITER: Batasi 1000 request per 15 menit per IP (Global)
+// Cukup longgar untuk multi-tab testing, tapi tetap aman dari serangan DDoS
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  message: { message: "Terlalu banyak permintaan dari IP ini, silakan coba lagi nanti." }
+});
+app.use("/api/", globalLimiter);
+
+// 🔥 AUTH LIMITER: Lebih ketat untuk Login (Anti Brute Force)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 10, // Maksimal 10 percobaan login per 15 menit
+  message: { message: "Terlalu banyak percobaan login, silakan tunggu 15 menit." }
+});
+app.use("/api/auth/login", loginLimiter);
+
 app.use(express.json());
-app.use(morgan("dev"));
+app.use(morgan("tiny")); // 📝 Log ringkas (Hemat CPU/I/O)
 app.use(requestLogger);
 app.use(timeLogger);
+app.use(sanitizer); // 🔥 Proteksi Global dari HTML Injection (XSS)
 app.use("/uploads", express.static("uploads"));
 
 // =============================
@@ -90,12 +138,13 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/laporan", laporanRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/notifikasi", notifRoutes);
-app.use("/api/opname", opnameRoutes);
+
 app.use("/api/audit", auditRoutes);
-app.use("/api/supplier", supplierRoutes);
+
 app.use("/api/users", userRoutes);
 app.use("/api/kategori", kategoriRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/satuan", satuanRoutes);
 
 // =============================
 // ERROR HANDLER (WAJIB DI BAWAH)
@@ -110,6 +159,7 @@ app.get("/", (req, res) => {
 // =============================
 // 🔥 START SERVER
 // =============================
-server.listen(5000, () => {
-  console.log("🚀 Server running on port 5000");
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
