@@ -9,7 +9,7 @@ const db = mysql.createPool({
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME || "inventory_gudang_pdam",
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: 3, // Turunkan ke 3 karena paket gratis Clever Cloud cuma kasih jatah 5
   queueLimit: 0
 });
 

@@ -37,20 +37,20 @@ exports.getDashboard = async (req, res) => {
       queryPromise(`
         SELECT MONTH(tanggal) as bulan, SUM(jumlah) as total
         FROM stok_masuk
-        GROUP BY MONTH(tanggal)
+        GROUP BY bulan
       `),
       // 3. Barang Keluar
       queryPromise(`
         SELECT MONTH(tanggal) as bulan, SUM(jumlah) as total
         FROM stok_keluar
-        GROUP BY MONTH(tanggal)
+        GROUP BY bulan
       `),
       // 4. Top Barang Keluar
       queryPromise(`
         SELECT b.nama_barang, SUM(sk.jumlah) as total_keluar
         FROM stok_keluar sk
         JOIN barang b ON sk.barang_id = b.id
-        GROUP BY sk.barang_id
+        GROUP BY sk.barang_id, b.nama_barang
         ORDER BY total_keluar DESC
         LIMIT 5
       `),
