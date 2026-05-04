@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 
-const SECRET = "secretkey"; // samakan dengan authController
+const SECRET = process.env.JWT_SECRET || "secretkey";
 
 // =============================
 // VERIFY TOKEN

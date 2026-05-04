@@ -4,6 +4,6 @@ const auditController = require("../controllers/auditController");
 const { verifyToken, allowRoles } = require("../middlewares/auth");
 
 router.get("/", verifyToken, allowRoles("admin"), auditController.getLogs);
-router.post("/login", verifyToken, auditController.logLogin);
+router.post("/login", auditController.logLogin);
 
 module.exports = router;

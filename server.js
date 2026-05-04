@@ -115,7 +115,7 @@ app.use("/api/", globalLimiter);
 // 🔥 AUTH LIMITER: Lebih ketat untuk Login (Anti Brute Force)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10, // Maksimal 10 percobaan login per 15 menit
+  max: 100, // Maksimal 10 percobaan login per 15 menit
   message: { message: "Terlalu banyak percobaan login, silakan tunggu 15 menit." }
 });
 app.use("/api/auth/login", loginLimiter);
