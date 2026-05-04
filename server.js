@@ -79,11 +79,11 @@ global.io = io;
 // =============================
 // MIDDLEWARE
 // =============================
-app.use(compression()); 
+app.use(compression());
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false,
-})); 
+}));
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -114,7 +114,7 @@ app.use("/api/", globalLimiter);
 
 // 🔥 AUTH LIMITER: Lebih ketat untuk Login (Anti Brute Force)
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
+  windowMs: 15 * 60 * 1000,
   max: 10, // Maksimal 10 percobaan login per 15 menit
   message: { message: "Terlalu banyak percobaan login, silakan tunggu 15 menit." }
 });
