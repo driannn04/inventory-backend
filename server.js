@@ -31,6 +31,7 @@ const rateLimit = require("express-rate-limit");
 const compression = require("compression");
 
 const app = express();
+app.set('trust proxy', 1); // ✅ Diperlukan agar rate-limiting jalan di Vercel
 const server = http.createServer(app);
 
 // =============================
