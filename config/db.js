@@ -1,8 +1,6 @@
 require('dotenv').config();
 const mysql = require("mysql2");
 
-// Menggunakan createPool: Standar Industri untuk Deployment (Production)
-// Menangani banyak koneksi sekaligus dengan lebih efisien dan stabil
 const db = mysql.createPool({
   host: process.env.DB_HOST || "localhost",
   user: process.env.DB_USER || "root",
@@ -22,7 +20,7 @@ db.getConnection((err, connection) => {
     console.error("❌ Database connection failed:", err.message);
   } else {
     console.log("✅ Database connected via Connection Pool (Production Ready)");
-    connection.release(); // Kembalikan koneksi ke pool
+    connection.release();
   }
 });
 
