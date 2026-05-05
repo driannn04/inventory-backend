@@ -13,11 +13,13 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
+console.log(`📡 Mencoba konek ke DB: ${process.env.DB_HOST} | User: ${process.env.DB_USER} | DB: ${process.env.DB_NAME}`);
+
 db.getConnection((err, connection) => {
   if (err) {
-    console.error("❌ Database lokal gagal konek:", err.message);
+    console.error("❌ KONEKSI GAGAL! Detail Error:", err.code, "|", err.message);
   } else {
-    console.log("✅ Database Lokal Terkoneksi (High Speed Mode)");
+    console.log("✅ Database Berhasil Terkoneksi ke:", process.env.DB_HOST);
     connection.release();
   }
 });
