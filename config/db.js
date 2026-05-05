@@ -7,6 +7,7 @@ const db = mysql.createPool({
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME || "inventory_gudang_pdam",
+  port: process.env.DB_PORT || 3306,
   waitForConnections: true,
   connectionLimit: 20, // Tambah limit agar responsif
   queueLimit: 0
