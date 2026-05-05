@@ -3,6 +3,7 @@ const QRCode = require("qrcode");
 const response = require("../utils/response");
 const XLSX = require("xlsx");
 const PDFDocument = require("pdfkit");
+const { kirimNotifikasi, kirimNotifikasiByRole } = require("../utils/notifikasi");
 
 // 🔥 AUTO GENERATE KODE BARANG
 const generateKodeBarang = () => {
@@ -207,7 +208,12 @@ VALUES (?,?,?,?,?,?,?,?)
 
         // 🔥 LOG AKTIVITAS
         const { logActivity } = require("../utils/activityLogger");
-        logActivity(req.user.id, "TAMBAH", "BARANG", `Mendaftarkan barang baru: [${kode_barang}] ${nama_barang} dengan stok awal ${stok} ${satuan}`);
+        const msg = `Berhasil mendaftarkan barang baru: [${kode_barang}] ${nama_barang} dengan stok awal ${stok} ${satuan}.`;
+        logActivity(req.user.id, "TAMBAH", "BARANG", msg);
+        
+        // 🔥 NOTIFIKASI BARANG BARU
+        kirimNotifikasiByRole("admin", "Registrasi Barang Baru", msg);
+        kirimNotifikasiByRole("gudang", "Registrasi Barang Baru", msg);
 
         // 🔥 FIX: Jika ada stok awal, masukkan ke riwayat mutasi stok_masuk agar Kartu Stok tidak ngaco
         if (parseInt(stok) > 0) {
@@ -321,23 +327,25 @@ WHERE id = ?
 
 // =============================
 exports.deleteBarang = (req, res) => {
-
   const id = req.params.id;
 
-  const sql = "UPDATE barang SET is_deleted = 1 WHERE id=?";
+  // 1. Ambil info barang dulu untuk notif
+  db.query("SELECT nama_barang, kode_barang FROM barang WHERE id = ?", [id], (err, rows) => {
+    if (err || rows.length === 0) return res.status(404).json({ message: "Barang tidak ditemukan" });
+    const b = rows[0];
 
-  db.query(sql, [id], (err, result) => {
+    const sql = "UPDATE barang SET is_deleted = 1 WHERE id=?";
+    db.query(sql, [id], (err) => {
+      if (err) return res.status(500).json(err);
 
-    if (err) {
-      return res.status(500).json(err);
-    }
+      res.json({ message: "Barang berhasil dinonaktifkan" });
 
-    res.json({
-      message: "Barang berhasil dihapus (soft delete)"
+      // 🔥 NOTIFIKASI HAPUS BARANG (DETAIL)
+      const msg = `Barang [${b.kode_barang}] ${b.nama_barang} telah dinonaktifkan dari sistem oleh Admin.`;
+      kirimNotifikasiByRole("admin", "Penghapusan Barang", msg);
+      kirimNotifikasiByRole("gudang", "Penghapusan Barang", msg);
     });
-
   });
-
 };
 
 // =============================

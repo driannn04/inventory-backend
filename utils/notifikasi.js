@@ -11,18 +11,18 @@ exports.kirimNotifikasi = (user_id, judul, pesan) => {
 
   db.query(sql, [user_id, judul, pesan], (err) => {
     if (err) {
-      console.error("❌ DB Insert Notif Error:", err.message);
+      console.log("Notif error:", err);
     } else {
-      // realtime
+      // 1. Realtime Notif (Pop-up & List) untuk penerima asli
       const idStr = String(user_id);
       if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
-        console.log(`📡 Sending realtime notif to User ${idStr}`);
         global.onlineUsers[idStr].forEach(socketId => {
           global.io.to(socketId).emit("notif_baru", { judul, pesan });
         });
-      } else {
-        console.log(`⚠️ User ${idStr} is offline, notif saved to DB.`);
       }
+
+      // 2. Sinyal Refresh Badge (Diam) untuk semua Admin agar badge update
+      broadcastRefreshToAdmins([user_id]);
     }
   });
 };
@@ -41,23 +41,43 @@ exports.kirimNotifikasiByRole = (role_nama, judul, pesan) => {
   db.query(sql, [role_nama], (err, users) => {
     if (err) return console.log(err);
 
+    const sentIds = [];
     users.forEach((user) => {
+      sentIds.push(user.id);
       const insert = `
         INSERT INTO notifikasi (user_id, judul, pesan, is_read, created_at)
         VALUES (?, ?, ?, 0, NOW())
       `;
+      db.query(insert, [user.id, judul, pesan]);
 
-      db.query(insert, [user.id, judul, pesan], (err) => {
-         if (err) console.error("❌ DB Insert Role Notif Error:", err.message);
-      });
-
-      // 🔥 REALTIME JUGA
-      const roleIdStr = String(user.id);
-      if (global.io && global.onlineUsers && global.onlineUsers[roleIdStr]) {
-        global.onlineUsers[roleIdStr].forEach(socketId => {
+      // Realtime Notif untuk role terkait
+      const idStr = String(user.id);
+      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
+        global.onlineUsers[idStr].forEach(socketId => {
           global.io.to(socketId).emit("notif_baru", { judul, pesan });
         });
       }
     });
+
+    // Sinyal Refresh Badge untuk Admin (jika admin bukan penerima utama)
+    broadcastRefreshToAdmins(sentIds);
   });
 };
+
+// ⚡ Sinyal refresh data "diam" (Hanya untuk update badge/list, tanpa pop-up toast)
+function broadcastRefreshToAdmins(skipIds = []) {
+  const sqlAdmin = `SELECT users.id FROM users JOIN roles ON users.role_id = roles.id WHERE roles.nama_role = 'admin'`;
+  db.query(sqlAdmin, (err, admins) => {
+    if (err) return;
+    admins.forEach(adm => {
+      if (skipIds.includes(adm.id)) return;
+      const idStr = String(adm.id);
+      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
+        global.onlineUsers[idStr].forEach(socketId => {
+          // Gunakan event 'refresh_data' agar Topbar tau ini hanya untuk refresh, bukan untuk pop-up
+          global.io.to(socketId).emit("refresh_data");
+        });
+      }
+    });
+  });
+}

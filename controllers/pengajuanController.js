@@ -26,7 +26,6 @@ exports.createPengajuan = (req, res) => {
       if (err) { conn.release(); return res.status(500).json(err); }
 
       try {
-        // 1. VALIDASI STOK STRICT
         for (const item of items) {
           await new Promise((resolve, reject) => {
             const sqlCek = `
@@ -52,7 +51,6 @@ exports.createPengajuan = (req, res) => {
           });
         }
 
-        // 2. INSERT PENGAJUAN
         conn.query(sqlPengajuan, [nomor, user_id, status, urgensi || 'normal', catatan], (err, result) => {
           if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
 
@@ -76,11 +74,14 @@ exports.createPengajuan = (req, res) => {
                 conn.release();
                 
                 logActivity(user_id, "TAMBAH", "PENGAJUAN", `Membuat pengajuan baru: ${nomor}`);
-                kirimNotifikasi(user_id, "Pengajuan Dibuat", `Pengajuan ${nomor} berhasil dibuat`);
                 
-                if (role === "manager") kirimNotifikasiByRole("gudang", "📦 Pengajuan Manager", `Pengajuan ${nomor} menunggu gudang`);
-                else if (role === "asisten_manager") kirimNotifikasiByRole("manager", "📑 Pengajuan Asmen", `Pengajuan ${nomor} menunggu manager`);
-                else kirimNotifikasiByRole("asisten_manager", "Pengajuan Baru", `Pengajuan ${nomor} menunggu approval`);
+                // NOTIF USER
+                kirimNotifikasi(user_id, "Berhasil Terkirim", `Pengajuan ${nomor} Anda telah berhasil dibuat dan sedang menunggu antrean approval.`);
+                
+                // NOTIF ROLE TERKAIT
+                if (role === "manager") kirimNotifikasiByRole("gudang", "Pengajuan Siap Diproses", `Ada pengajuan baru ${nomor} yang menunggu untuk Anda proses.`);
+                else if (role === "asisten_manager") kirimNotifikasiByRole("manager", "Butuh Approval Anda", `Pengajuan ${nomor} telah divalidasi Asmen dan menunggu persetujuan Anda.`);
+                else kirimNotifikasiByRole("asisten_manager", "Pengajuan Baru Masuk", `Staff telah membuat pengajuan baru ${nomor}. Silakan periksa dan lakukan validasi.`);
 
                 res.json({ message: "Pengajuan berhasil dikirim", nomor_pengajuan: nomor });
               });
@@ -122,24 +123,6 @@ exports.getPengajuan = (req, res) => {
 };
 
 // =============================
-// STAFF STATS
-// =============================
-exports.getStaffStats = (req, res) => {
-  const user_id = req.user.id;
-  const sql = `
-    SELECT COUNT(*) as total,
-    SUM(CASE WHEN status IN ('pending_asisten_manager','pending_manager','pending_gudang') THEN 1 ELSE 0 END) as pending,
-    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as approved,
-    SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected
-    FROM pengajuan WHERE user_id = ?
-  `;
-  db.query(sql, [user_id], (err, result) => {
-    if (err) return res.status(500).json(err);
-    res.json(result[0]);
-  });
-};
-
-// =============================
 // GET BY ID
 // =============================
 exports.getPengajuanById = (req, res) => {
@@ -163,7 +146,25 @@ exports.getPengajuanById = (req, res) => {
 };
 
 // =============================
-// APPROVE PENGAJUAN (Unified)
+// STAFF STATS
+// =============================
+exports.getStaffStats = (req, res) => {
+  const user_id = req.user.id;
+  const sql = `
+    SELECT COUNT(*) as total,
+    SUM(CASE WHEN status IN ('pending_asisten_manager','pending_manager','pending_gudang') THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as approved,
+    SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected
+    FROM pengajuan WHERE user_id = ?
+  `;
+  db.query(sql, [user_id], (err, result) => {
+    if (err) return res.status(500).json(err);
+    res.json(result[0]);
+  });
+};
+
+// =============================
+// APPROVE PENGAJUAN
 // =============================
 exports.approvePengajuan = (req, res) => {
   const { pengajuan_id, role, user_id } = req.body;
@@ -179,12 +180,13 @@ exports.approvePengajuan = (req, res) => {
         
         const p = rows[0];
         let nextStatus = "";
+        let roleName = role.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
+
         if (role === "asisten_manager") nextStatus = "pending_manager";
         else if (role === "manager") nextStatus = "pending_gudang";
         else if (role === "gudang") nextStatus = "completed";
 
         if (role === "gudang") {
-          // Logic stok jika Gudang approve
           conn.query("SELECT pd.barang_id, pd.jumlah, b.nama_barang, b.stok FROM pengajuan_detail pd JOIN barang b ON pd.barang_id = b.id WHERE pd.pengajuan_id = ?", [pengajuan_id], async (err, items) => {
             if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
             
@@ -194,20 +196,20 @@ exports.approvePengajuan = (req, res) => {
                 await new Promise((rs, rj) => conn.query("UPDATE barang SET stok = stok - ? WHERE id = ?", [item.jumlah, item.barang_id], (e) => e ? rj(e) : rs()));
                 await new Promise((rs, rj) => conn.query("INSERT INTO stok_keluar (barang_id, pengajuan_id, jumlah, tanggal, keterangan) VALUES (?,?,?,NOW(),?)", [item.barang_id, pengajuan_id, item.jumlah, `Pengajuan: ${p.nomor_pengajuan}`], (e) => e ? rj(e) : rs()));
               }
-              finishApproval(conn, pengajuan_id, user_id, role, nextStatus, p, res);
+              finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res);
             } catch (e) {
               conn.rollback(() => { conn.release(); res.status(400).json({ message: e.message }); });
             }
           });
         } else {
-          finishApproval(conn, pengajuan_id, user_id, role, nextStatus, p, res);
+          finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res);
         }
       });
     });
   });
 };
 
-function finishApproval(conn, pengajuan_id, user_id, role, nextStatus, p, res) {
+function finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res) {
   conn.query("UPDATE pengajuan SET status=? WHERE id=?", [nextStatus, pengajuan_id], (err) => {
     if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
     conn.query("INSERT INTO approval (pengajuan_id, approved_by, role, status, tanggal) VALUES (?,?,?, 'approved', NOW())", [pengajuan_id, user_id, role], (err) => {
@@ -215,11 +217,30 @@ function finishApproval(conn, pengajuan_id, user_id, role, nextStatus, p, res) {
       conn.commit((err) => {
         if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
         conn.release();
-        logActivity(user_id, "APPROVE", "PENGAJUAN", `Approval ${role} untuk ${p.nomor_pengajuan}`);
-        kirimNotifikasi(p.user_id, "Update Pengajuan", `Pengajuan ${p.nomor_pengajuan} disetujui oleh ${role}`);
-        if (role === "asisten_manager") kirimNotifikasiByRole("manager", "Approval Baru", `Menunggu Manager: ${p.nomor_pengajuan}`);
-        if (role === "manager") kirimNotifikasiByRole("gudang", "Siap Diproses", `Menunggu Gudang: ${p.nomor_pengajuan}`);
-        res.json({ message: `Approval ${role} berhasil` });
+        
+        // 1. LOG APPROVAL
+        logActivity(user_id, "APPROVE", "PENGAJUAN", `Persetujuan ${roleName} untuk Pengajuan ${p.nomor_pengajuan}`);
+        
+        // 2. LOG STOK KELUAR (Khusus Gudang)
+        if (role === "gudang") {
+          logActivity(user_id, "PENGELUARAN", "STOK KELUAR", `Otomatis melalui penyelesaian Pengajuan ${p.nomor_pengajuan}`);
+        }
+        
+        // 3. NOTIFIKASI USER (PEMOHON)
+        if (role === "gudang") {
+          kirimNotifikasi(p.user_id, "Pengajuan Selesai", `Kabar baik! Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok barang Anda telah resmi dikeluarkan.`);
+        } else {
+          kirimNotifikasi(p.user_id, "Pengajuan Disetujui", `Pengajuan ${p.nomor_pengajuan} Anda telah disetujui oleh ${roleName}.`);
+        }
+        
+        // 4. NOTIFIKASI NEXT STEP / ADMIN
+        if (role === "asisten_manager") kirimNotifikasiByRole("manager", "Perlu Persetujuan Anda", `Pengajuan ${p.nomor_pengajuan} menunggu approval Anda.`);
+        if (role === "manager") kirimNotifikasiByRole("gudang", "Siap Diproses", `Pengajuan ${p.nomor_pengajuan} sudah disetujui Manager dan siap Anda proses.`);
+        if (role === "gudang") {
+            kirimNotifikasiByRole("admin", "Penyelesaian Pengajuan", `Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok telah diperbarui.`);
+        }
+
+        res.json({ message: `Approval ${roleName} berhasil` });
       });
     });
   });
@@ -234,14 +255,25 @@ exports.rejectPengajuan = (req, res) => {
     if (err) return res.status(500).json(err);
     conn.beginTransaction((err) => {
       if (err) { conn.release(); return res.status(500).json(err); }
-      conn.query("UPDATE pengajuan SET status='rejected' WHERE id=?", [pengajuan_id], (err) => {
+
+      conn.query("SELECT user_id, nomor_pengajuan FROM pengajuan WHERE id = ?", [pengajuan_id], (err, pRows) => {
         if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-        conn.query("INSERT INTO approval (pengajuan_id, approved_by, role, status, catatan, tanggal) VALUES (?,?,?,'rejected',?,NOW())", [pengajuan_id, user_id, role, catatan], (err) => {
+        const pData = pRows[0];
+
+        conn.query("UPDATE pengajuan SET status='rejected' WHERE id=?", [pengajuan_id], (err) => {
           if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-          conn.commit((err) => {
+          conn.query("INSERT INTO approval (pengajuan_id, approved_by, role, status, catatan, tanggal) VALUES (?,?,?,'rejected',?,NOW())", [pengajuan_id, user_id, role, catatan], (err) => {
             if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-            conn.release();
-            res.json({ message: "Pengajuan ditolak" });
+            conn.commit((err) => {
+              if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+              conn.release();
+
+              if (pData) {
+                logActivity(user_id, "REJECT", "PENGAJUAN", `Penolakan Pengajuan ${pData.nomor_pengajuan} oleh ${role}`);
+                kirimNotifikasi(pData.user_id, "Pengajuan Ditolak", `Maaf, pengajuan ${pData.nomor_pengajuan} Anda ditolak oleh ${role}. Alasan: ${catatan}`);
+              }
+              res.json({ message: "Pengajuan ditolak" });
+            });
           });
         });
       });
@@ -250,7 +282,7 @@ exports.rejectPengajuan = (req, res) => {
 };
 
 // =============================
-// HISTORY & CRUD
+// CRUD
 // =============================
 exports.getApprovalHistory = (req, res) => {
   db.query("SELECT a.*, u.nama FROM approval a JOIN users u ON a.approved_by = u.id WHERE a.pengajuan_id = ? ORDER BY a.tanggal ASC", [req.params.id], (err, result) => {

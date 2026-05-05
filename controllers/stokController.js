@@ -32,10 +32,10 @@ exports.tambahStokMasuk = (req, res) => {
             db.query("SELECT kode_barang, nama_barang, satuan FROM barang WHERE id = ?", [barang_id], (errN, rows) => {
               if (rows?.[0]) {
                 const b = rows[0];
-                const msg = `[${b.kode_barang}] ${b.nama_barang} bertambah ${jumlah} ${b.satuan}. Ket: ${keterangan || '-'}`;
-                logActivity(req.user.id, "TAMBAH", "STOK MASUK", msg);
-                kirimNotifikasiByRole("admin", "📦 Stok Masuk", msg);
-                kirimNotifikasiByRole("gudang", "📦 Stok Masuk", msg);
+                const msg = `Penerimaan barang [${b.kode_barang}] ${b.nama_barang} sebanyak ${jumlah} ${b.satuan}. Ket: ${keterangan || '-'}`;
+                logActivity(req.user.id, "MASUK", "STOK MASUK", msg);
+                kirimNotifikasiByRole("admin", "Penerimaan Barang", msg);
+                kirimNotifikasiByRole("gudang", "Penerimaan Barang", msg);
               }
             });
 
@@ -63,7 +63,7 @@ exports.tambahStokKeluar = (req, res) => {
     conn.beginTransaction((err) => {
       if (err) { conn.release(); return res.status(500).json(err); }
 
-      conn.query("SELECT stok, nama_barang, stok_minimum FROM barang WHERE id = ? FOR UPDATE", [barang_id], (err, rows) => {
+      conn.query("SELECT stok, nama_barang, kode_barang, satuan, stok_minimum FROM barang WHERE id = ? FOR UPDATE", [barang_id], (err, rows) => {
         if (err || rows.length === 0) return conn.rollback(() => { conn.release(); res.status(404).json({ message: "Barang tidak ditemukan" }); });
         
         const b = rows[0];
@@ -81,12 +81,15 @@ exports.tambahStokKeluar = (req, res) => {
 
               // 🔥 LOG, NOTIF & MINIMUM CHECK
               if (b.stok - jumlah <= b.stok_minimum) {
-                kirimNotifikasiByRole("admin", "⚠️ Stok Minimum", `${b.nama_barang} hampir habis!`);
+                kirimNotifikasiByRole("admin", "⚠️ Perhatian: Stok Menipis", `Barang ${b.nama_barang} kini tersisa ${b.stok - jumlah}. Segera lakukan pengadaan.`);
               }
 
-              const msg = `${b.nama_barang} berkurang ${jumlah}. Ket: ${keterangan || '-'}`;
-              logActivity(req.user.id, "TAMBAH", "STOK KELUAR", msg);
+              const msg = `Pengeluaran barang [${b.kode_barang}] ${b.nama_barang} sebanyak ${jumlah} ${b.satuan}. Ket: ${keterangan || '-'}`;
+              logActivity(req.user.id, "KELUAR", "STOK KELUAR", msg);
               
+              kirimNotifikasiByRole("admin", "Pengeluaran Barang", msg);
+              kirimNotifikasiByRole("gudang", "Pengeluaran Barang", msg);
+
               res.json({ message: "Stok berhasil dikurangi" });
             });
           });
