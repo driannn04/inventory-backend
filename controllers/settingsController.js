@@ -83,36 +83,75 @@ exports.uploadLogo = async (req, res) => {
 // REAL SQL BACKUP GENERATOR
 // ==========================================
 exports.downloadBackup = async (req, res) => {
-  const tables = ['users', 'roles', 'kategori_barang', 'barang', 'satuan', 'stok_masuk', 'stok_keluar', 'pengajuan', 'pengajuan_detail', 'system_settings', 'notifikasi'];
-  let sqlDump = `-- PDAM TIRTA PAKUAN DATABASE BACKUP\n-- Generated: ${new Date().toLocaleString()}\n\n`;
-  sqlDump += "SET SQL_MODE = \"NO_AUTO_VALUE_ON_ZERO\";\nSTART TRANSACTION;\n\n";
+  // Ambil daftar tabel yang ada di database secara dinamis
+  const getTablesSql = "SHOW TABLES";
+  
+  let sqlDump = `-- PDAM TIRTA PAKUAN DATABASE BACKUP\n`;
+  sqlDump += `-- Generated: ${new Date().toLocaleString()}\n\n`;
+  sqlDump += "SET FOREIGN_KEY_CHECKS = 0;\n";
+  sqlDump += "SET SQL_MODE = \"NO_AUTO_VALUE_ON_ZERO\";\n";
+  sqlDump += "START TRANSACTION;\n\n";
 
   try {
-    for (const table of tables) {
+    const tablesRes = await new Promise((resolve, reject) => {
+      db.query(getTablesSql, (err, res) => {
+        if (err) reject(err);
+        else resolve(res);
+      });
+    });
+
+    const dbName = db.config.database || 'database';
+    const tableList = tablesRes.map(row => Object.values(row)[0]);
+
+    for (const table of tableList) {
+      // 1. Get CREATE TABLE schema
+      const createTableSql = await new Promise((resolve, reject) => {
+        db.query(`SHOW CREATE TABLE \`${table}\``, (err, res) => {
+          if (err) reject(err);
+          else resolve(res[0]['Create Table']);
+        });
+      });
+
+      sqlDump += `-- --------------------------------------------------------\n`;
+      sqlDump += `-- Table structure for table: \`${table}\`\n`;
+      sqlDump += `-- --------------------------------------------------------\n`;
+      sqlDump += `DROP TABLE IF EXISTS \`${table}\`;\n`;
+      sqlDump += `${createTableSql};\n\n`;
+
+      // 2. Get Data
       const data = await new Promise((resolve, reject) => {
-        db.query(`SELECT * FROM ${table}`, (err, res) => {
+        db.query(`SELECT * FROM \`${table}\``, (err, res) => {
           if (err) reject(err);
           else resolve(res);
         });
       });
 
       if (data.length > 0) {
-        sqlDump += `-- Dumping data for table: ${table}\n`;
-        const columns = Object.keys(data[0]).join(", ");
+        sqlDump += `-- Dumping data for table: \`${table}\`\n`;
+        const columns = Object.keys(data[0]).map(col => `\`${col}\``).join(", ");
+        
         data.forEach(row => {
           const values = Object.values(row).map(v => {
             if (v === null) return "NULL";
             if (typeof v === "string") return `'${v.replace(/'/g, "''")}'`;
-            if (v instanceof Date) return `'${v.toISOString().slice(0, 19).replace('T', ' ')}'`;
+            if (v instanceof Date) {
+                // Format date ke YYYY-MM-DD HH:mm:ss lokal
+                const offset = v.getTimezoneOffset();
+                const localDate = new Date(v.getTime() - (offset * 60 * 1000));
+                return `'${localDate.toISOString().slice(0, 19).replace('T', ' ')}'`;
+            }
+            if (typeof v === "boolean") return v ? 1 : 0;
             return v;
           }).join(", ");
-          sqlDump += `INSERT INTO ${table} (${columns}) VALUES (${values});\n`;
+          sqlDump += `INSERT INTO \`${table}\` (${columns}) VALUES (${values});\n`;
         });
         sqlDump += "\n";
       }
     }
 
+    sqlDump += "SET FOREIGN_KEY_CHECKS = 1;\n";
     sqlDump += "COMMIT;";
+    
     const filename = `backup_pdam_${new Date().toISOString().slice(0,10)}.sql`;
     
     res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
@@ -120,6 +159,7 @@ exports.downloadBackup = async (req, res) => {
     res.send(sqlDump);
 
   } catch (err) {
+    console.error("Backup Error:", err);
     res.status(500).json({ message: "Gagal membuat backup", error: err.message });
   }
 };

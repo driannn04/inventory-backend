@@ -12,6 +12,23 @@ const queryPromise = (sql, params = []) => {
 
 exports.getDashboard = async (req, res) => {
   try {
+    const { chartRange = 'year', pieRange = 'year', topRange = 'year' } = req.query;
+    
+    // Helper untuk membuat filter berdasarkan range
+    const getFilter = (range, col = 'tanggal') => {
+      if (range === '7d') return `WHERE ${col} >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
+      if (range === '30d') return `WHERE ${col} >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+      if (range === '6m') return `WHERE ${col} >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)`;
+      return `WHERE YEAR(${col}) = YEAR(CURDATE())`;
+    };
+
+    const chartFilter = getFilter(chartRange);
+    const pieFilter = getFilter(pieRange, 'created_at');
+    const topFilter = getFilter(topRange);
+
+    // Grouping khusus grafik
+    let groupBy = "MONTH(tanggal)";
+    if (chartRange === '7d' || chartRange === '30d') groupBy = "DATE(tanggal)";
     // Jalankan semua query secara PARALEL (Bersamaan)
     // Ini jauh lebih cepat daripada menjalankannya satu-per-satu (nested)
     const [
@@ -35,21 +52,26 @@ exports.getDashboard = async (req, res) => {
       `),
       // 2. Barang Masuk
       queryPromise(`
-        SELECT MONTH(tanggal) as bulan, SUM(jumlah) as total
+        SELECT ${groupBy} as label, SUM(jumlah) as total
         FROM stok_masuk
-        GROUP BY bulan
+        ${chartFilter}
+        GROUP BY label
+        ORDER BY label ASC
       `),
       // 3. Barang Keluar
       queryPromise(`
-        SELECT MONTH(tanggal) as bulan, SUM(jumlah) as total
+        SELECT ${groupBy} as label, SUM(jumlah) as total
         FROM stok_keluar
-        GROUP BY bulan
+        ${chartFilter}
+        GROUP BY label
+        ORDER BY label ASC
       `),
       // 4. Top Barang Keluar
       queryPromise(`
         SELECT b.nama_barang, SUM(sk.jumlah) as total_keluar
         FROM stok_keluar sk
         JOIN barang b ON sk.barang_id = b.id
+        ${topFilter}
         GROUP BY sk.barang_id, b.nama_barang
         ORDER BY total_keluar DESC
         LIMIT 5
@@ -59,6 +81,7 @@ exports.getDashboard = async (req, res) => {
         SELECT al.aksi, al.keterangan as deskripsi, al.created_at, u.nama as nama_user
         FROM activity_logs al
         LEFT JOIN users u ON al.user_id = u.id
+        ${dateFilter.replace(/tanggal/g, 'al.created_at')}
         ORDER BY al.created_at DESC
         LIMIT 7
       `),
@@ -66,6 +89,7 @@ exports.getDashboard = async (req, res) => {
       queryPromise(`
         SELECT status, COUNT(*) as total
         FROM pengajuan
+        ${pieFilter}
         GROUP BY status
       `),
       // 7. Stok Rendah
