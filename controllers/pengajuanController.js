@@ -104,7 +104,7 @@ exports.createPengajuan = (req, res) => {
 // GET PENGAJUAN
 // =============================
 exports.getPengajuan = (req, res) => {
-  const { role, id: user_id, id_dept } = req.user;
+  const { role, id: user_id, id_dept, id_subdept } = req.user;
   let sql = "";
   let params = [];
 
@@ -116,16 +116,16 @@ exports.getPengajuan = (req, res) => {
            WHERE p.user_id = ? ORDER BY p.created_at DESC`;
     params = [user_id];
   } else if (role === "asisten_manager") {
-    // Asisten Manager hanya lihat pengajuan dari departemennya sendiri
+    // Asisten Manager hanya lihat pengajuan dari SUB-DEPARTEMENnya sendiri
     sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
            FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
            LEFT JOIN departments d ON u.id_dept = d.id
            WHERE p.status IN ('pending_asisten_manager','pending_manager','pending_gudang','completed','rejected')
-           AND u.id_dept = ?
+           AND u.id_subdept = ?
            ORDER BY p.created_at DESC`;
-    params = [id_dept];
+    params = [id_subdept];
   } else if (role === "manager") {
-    // Manager hanya lihat pengajuan dari departemennya sendiri
+    // Manager melihat seluruh DEPARTEMEN (Membawahi semua Sub-Dept)
     sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
            FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
            LEFT JOIN departments d ON u.id_dept = d.id
