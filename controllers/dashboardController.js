@@ -13,6 +13,7 @@ const queryPromise = (sql, params = []) => {
 exports.getDashboard = async (req, res) => {
   try {
     const { chartRange = 'year', pieRange = 'year', topRange = 'year' } = req.query;
+    const { role, id: user_id, id_dept, id_subdept } = req.user;
     
     // Helper untuk membuat filter berdasarkan range
     const getFilter = (range, col = 'tanggal') => {
@@ -22,6 +23,16 @@ exports.getDashboard = async (req, res) => {
       return `WHERE YEAR(${col}) = YEAR(CURDATE())`;
     };
 
+    // Filter khusus berdasarkan Role untuk Pengajuan
+    let userFilter = "WHERE 1=1";
+    if (role === "staff") {
+      userFilter = `WHERE user_id = ${user_id}`;
+    } else if (role === "asisten_manager") {
+      userFilter = `WHERE user_id IN (SELECT id FROM users WHERE id_subdept = ${id_subdept})`;
+    } else if (role === "manager") {
+      userFilter = `WHERE user_id IN (SELECT id FROM users WHERE id_dept = ${id_dept})`;
+    }
+
     const chartFilter = getFilter(chartRange);
     const pieFilter = getFilter(pieRange, 'created_at');
     const topFilter = getFilter(topRange);
@@ -29,9 +40,7 @@ exports.getDashboard = async (req, res) => {
     // Grouping khusus grafik
     let groupBy = "MONTH(tanggal)";
     if (chartRange === '7d' || chartRange === '30d') groupBy = "DATE(tanggal)";
-    // Jalankan semua query secara PARALEL (Bersamaan)
-    // Ini jauh lebih cepat daripada menjalankannya satu-per-satu (nested)
-    // Jalankan semua query secara PARALEL (Bersamaan)
+    
     const [
       summary,
       masuk,
@@ -42,13 +51,13 @@ exports.getDashboard = async (req, res) => {
       latest,
       mutasi
     ] = await Promise.all([
-      // 1. Summary
+      // 1. Summary (Difilter sesuai Role)
       queryPromise(`
         SELECT 
           (SELECT COUNT(*) FROM barang WHERE is_deleted = 0) as total_barang,
           (SELECT IFNULL(SUM(stok),0) FROM barang WHERE is_deleted = 0) as total_stok,
           (SELECT COUNT(*) FROM barang WHERE stok <= stok_minimum AND is_deleted = 0) as stok_kritis,
-          (SELECT COUNT(*) FROM pengajuan WHERE status != 'completed' AND status != 'rejected') as pengajuan_pending
+          (SELECT COUNT(*) FROM pengajuan ${userFilter} AND status != 'completed' AND status != 'rejected') as pengajuan_pending
       `),
       // 2. Barang Masuk
       queryPromise(`
@@ -58,6 +67,7 @@ exports.getDashboard = async (req, res) => {
         GROUP BY label
         ORDER BY label ASC
       `),
+      // ... query lainnya tetap sama ...
       // 3. Barang Keluar
       queryPromise(`
         SELECT ${groupBy} as label, SUM(jumlah) as total
@@ -76,11 +86,11 @@ exports.getDashboard = async (req, res) => {
         ORDER BY total_keluar DESC
         LIMIT 5
       `),
-      // 5. Status Pengajuan (Pie)
+      // 5. Status Pengajuan (Difilter sesuai Role)
       queryPromise(`
         SELECT status, COUNT(*) as total
         FROM pengajuan
-        ${pieFilter}
+        ${userFilter} ${pieFilter.replace('WHERE', 'AND')}
         GROUP BY status
       `),
       // 6. Stok Rendah
@@ -119,7 +129,6 @@ exports.getDashboard = async (req, res) => {
       `)
     ]);
 
-    // Susun objek dashboard
     const dashboard = {
       summary: summary[0],
       barang_masuk_bulanan: masuk,
@@ -132,9 +141,8 @@ exports.getDashboard = async (req, res) => {
     };
 
     res.json(dashboard);
-
   } catch (err) {
-    console.error("Dashboard Optimization Error:", err);
+    console.error("Dashboard Filter Error:", err);
     res.status(500).json({ message: "Gagal memuat dashboard", error: err.message });
   }
 };

@@ -104,6 +104,45 @@ exports.kirimNotifikasiByRoleAndDept = (role_nama, dept_id, judul, pesan) => {
   });
 };
 
+// =============================
+// 🧩 NOTIF BERDASARKAN ROLE + SUB-DEPT
+// =============================
+exports.kirimNotifikasiByRoleAndSubDept = (role_nama, sub_dept_id, judul, pesan) => {
+  if (!sub_dept_id) {
+    return exports.kirimNotifikasiByRole(role_nama, judul, pesan);
+  }
+
+  const sql = `
+    SELECT u.id 
+    FROM users u
+    JOIN roles r ON u.role_id = r.id
+    WHERE r.nama_role = ? AND u.id_subdept = ?
+  `;
+
+  db.query(sql, [role_nama, sub_dept_id], (err, users) => {
+    if (err) return console.log(err);
+
+    const sentIds = [];
+    users.forEach((user) => {
+      sentIds.push(user.id);
+      const insert = `
+        INSERT INTO notifikasi (user_id, judul, pesan, is_read, created_at)
+        VALUES (?, ?, ?, 0, NOW())
+      `;
+      db.query(insert, [user.id, judul, pesan]);
+
+      const idStr = String(user.id);
+      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
+        global.onlineUsers[idStr].forEach(socketId => {
+          global.io.to(socketId).emit("notif_baru", { judul, pesan });
+        });
+      }
+    });
+
+    broadcastRefreshToAdmins(sentIds);
+  });
+};
+
 // ⚡ Sinyal refresh data "diam" (Hanya untuk update badge/list, tanpa pop-up toast)
 function broadcastRefreshToAdmins(skipIds = []) {
   const sqlAdmin = `SELECT users.id FROM users JOIN roles ON users.role_id = roles.id WHERE roles.nama_role = 'admin'`;
