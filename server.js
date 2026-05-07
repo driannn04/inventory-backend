@@ -37,7 +37,7 @@ const io = new Server(server, {
   },
 });
 
-global.onlineUsers = {}; 
+global.onlineUsers = {};
 
 io.on("connection", (socket) => {
   console.log("🔌 Client connected:", socket.id);
@@ -66,14 +66,16 @@ global.io = io;
 // MIDDLEWARE
 // =============================
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
-  credentials: true
+  origin: "*", // Mengizinkan semua domain (termasuk Dev Tunnels)
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 app.use(express.json());
 app.use(requestLogger);
 app.use(timeLogger);
-app.use(sanitizer); 
+app.use(sanitizer);
 app.use("/uploads", express.static("uploads"));
 
 // =============================
