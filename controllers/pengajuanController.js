@@ -1,5 +1,5 @@
 const db = require("../config/db");
-const { kirimNotifikasi, kirimNotifikasiByRole } = require("../utils/notifikasi");
+const { kirimNotifikasi, kirimNotifikasiByRole, kirimNotifikasiByRoleAndDept } = require("../utils/notifikasi");
 const { logActivity } = require("../utils/activityLogger");
 
 // =============================
@@ -75,13 +75,18 @@ exports.createPengajuan = (req, res) => {
                 
                 logActivity(user_id, "TAMBAH", "PENGAJUAN", `Membuat pengajuan baru: ${nomor}`);
                 
-                // NOTIF USER
-                kirimNotifikasi(user_id, "Berhasil Terkirim", `Pengajuan ${nomor} Anda telah berhasil dibuat dan sedang menunggu antrean approval.`);
-                
-                // NOTIF ROLE TERKAIT
-                if (role === "manager") kirimNotifikasiByRole("gudang", "Pengajuan Siap Diproses", `Ada pengajuan baru ${nomor} yang menunggu untuk Anda proses.`);
-                else if (role === "asisten_manager") kirimNotifikasiByRole("manager", "Butuh Approval Anda", `Pengajuan ${nomor} telah divalidasi Asmen dan menunggu persetujuan Anda.`);
-                else kirimNotifikasiByRole("asisten_manager", "Pengajuan Baru Masuk", `Staff telah membuat pengajuan baru ${nomor}. Silakan periksa dan lakukan validasi.`);
+                // Ambil id_dept user pembuat untuk kirim notif ke atasan se-departemen
+                db.query("SELECT id_dept FROM users WHERE id = ?", [user_id], (err, uRows) => {
+                  const userDeptId = uRows && uRows[0] ? uRows[0].id_dept : null;
+                  
+                  // NOTIF USER
+                  kirimNotifikasi(user_id, "Berhasil Terkirim", `Pengajuan ${nomor} Anda telah berhasil dibuat dan sedang menunggu antrean approval.`);
+                  
+                  // NOTIF ROLE TERKAIT (SE-DEPARTEMEN)
+                  if (role === "manager") kirimNotifikasiByRole("gudang", "Pengajuan Siap Diproses", `Ada pengajuan baru ${nomor} yang menunggu untuk Anda proses.`);
+                  else if (role === "asisten_manager") kirimNotifikasiByRoleAndDept("manager", userDeptId, "Butuh Approval Anda", `Pengajuan ${nomor} telah divalidasi Asmen dan menunggu persetujuan Anda.`);
+                  else kirimNotifikasiByRoleAndDept("asisten_manager", userDeptId, "Pengajuan Baru Masuk", `Staff telah membuat pengajuan baru ${nomor}. Silakan periksa dan lakukan validasi.`);
+                });
 
                 res.json({ message: "Pengajuan berhasil dikirim", nomor_pengajuan: nomor });
               });
@@ -99,21 +104,47 @@ exports.createPengajuan = (req, res) => {
 // GET PENGAJUAN
 // =============================
 exports.getPengajuan = (req, res) => {
-  const { role, id: user_id } = req.user;
+  const { role, id: user_id, id_dept } = req.user;
   let sql = "";
   let params = [];
 
   if (role === "staff") {
-    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id WHERE p.user_id = ? ORDER BY p.created_at DESC`;
+    // Staff hanya lihat pengajuan sendiri
+    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
+           FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
+           LEFT JOIN departments d ON u.id_dept = d.id
+           WHERE p.user_id = ? ORDER BY p.created_at DESC`;
     params = [user_id];
   } else if (role === "asisten_manager") {
-    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id WHERE p.status IN ('pending_asisten_manager','pending_manager','pending_gudang','completed','rejected') ORDER BY p.created_at DESC`;
+    // Asisten Manager hanya lihat pengajuan dari departemennya sendiri
+    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
+           FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
+           LEFT JOIN departments d ON u.id_dept = d.id
+           WHERE p.status IN ('pending_asisten_manager','pending_manager','pending_gudang','completed','rejected')
+           AND u.id_dept = ?
+           ORDER BY p.created_at DESC`;
+    params = [id_dept];
   } else if (role === "manager") {
-    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id WHERE p.status IN ('pending_manager','pending_gudang','completed','rejected') ORDER BY p.created_at DESC`;
+    // Manager hanya lihat pengajuan dari departemennya sendiri
+    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
+           FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
+           LEFT JOIN departments d ON u.id_dept = d.id
+           WHERE p.status IN ('pending_manager','pending_gudang','completed','rejected')
+           AND u.id_dept = ?
+           ORDER BY p.created_at DESC`;
+    params = [id_dept];
   } else if (role === "gudang") {
-    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id WHERE p.status IN ('pending_gudang','completed','rejected') ORDER BY p.created_at DESC`;
+    // Gudang lintas departemen
+    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
+           FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
+           LEFT JOIN departments d ON u.id_dept = d.id
+           WHERE p.status IN ('pending_gudang','completed','rejected') ORDER BY p.created_at DESC`;
   } else {
-    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id ORDER BY p.created_at DESC`;
+    // Admin lintas departemen
+    sql = `SELECT p.*, u.nama, r.nama_role as pengaju_role, d.nama_dept as dept_pengaju
+           FROM pengajuan p JOIN users u ON p.user_id = u.id JOIN roles r ON u.role_id = r.id
+           LEFT JOIN departments d ON u.id_dept = d.id
+           ORDER BY p.created_at DESC`;
   }
 
   db.query(sql, params, (err, result) => {
@@ -234,11 +265,15 @@ function finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus,
         }
         
         // 4. NOTIFIKASI NEXT STEP / ADMIN
-        if (role === "asisten_manager") kirimNotifikasiByRole("manager", "Perlu Persetujuan Anda", `Pengajuan ${p.nomor_pengajuan} menunggu approval Anda.`);
-        if (role === "manager") kirimNotifikasiByRole("gudang", "Siap Diproses", `Pengajuan ${p.nomor_pengajuan} sudah disetujui Manager dan siap Anda proses.`);
-        if (role === "gudang") {
+        // Ambil dept pembuat pengajuan untuk notif se-departemen
+        db.query("SELECT id_dept FROM users WHERE id = ?", [p.user_id], (err, uRows) => {
+          const deptId = uRows && uRows[0] ? uRows[0].id_dept : null;
+          if (role === "asisten_manager") kirimNotifikasiByRoleAndDept("manager", deptId, "Perlu Persetujuan Anda", `Pengajuan ${p.nomor_pengajuan} menunggu approval Anda.`);
+          if (role === "manager") kirimNotifikasiByRole("gudang", "Siap Diproses", `Pengajuan ${p.nomor_pengajuan} sudah disetujui Manager dan siap Anda proses.`);
+          if (role === "gudang") {
             kirimNotifikasiByRole("admin", "Penyelesaian Pengajuan", `Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok telah diperbarui.`);
-        }
+          }
+        });
 
         res.json({ message: `Approval ${roleName} berhasil` });
       });

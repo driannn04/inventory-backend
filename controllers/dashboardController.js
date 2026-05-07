@@ -31,12 +31,12 @@ exports.getDashboard = async (req, res) => {
     if (chartRange === '7d' || chartRange === '30d') groupBy = "DATE(tanggal)";
     // Jalankan semua query secara PARALEL (Bersamaan)
     // Ini jauh lebih cepat daripada menjalankannya satu-per-satu (nested)
+    // Jalankan semua query secara PARALEL (Bersamaan)
     const [
       summary,
       masuk,
       keluar,
       top,
-      log,
       statusData,
       lowStock,
       latest,
@@ -76,23 +76,14 @@ exports.getDashboard = async (req, res) => {
         ORDER BY total_keluar DESC
         LIMIT 5
       `),
-      // 5. Aktivitas Terbaru
-      queryPromise(`
-        SELECT al.aksi, al.keterangan as deskripsi, al.created_at, u.nama as nama_user
-        FROM activity_logs al
-        LEFT JOIN users u ON al.user_id = u.id
-        ${dateFilter.replace(/tanggal/g, 'al.created_at')}
-        ORDER BY al.created_at DESC
-        LIMIT 7
-      `),
-      // 6. Status Pengajuan (Pie)
+      // 5. Status Pengajuan (Pie)
       queryPromise(`
         SELECT status, COUNT(*) as total
         FROM pengajuan
         ${pieFilter}
         GROUP BY status
       `),
-      // 7. Stok Rendah
+      // 6. Stok Rendah
       queryPromise(`
         SELECT nama_barang, stok, stok_minimum, lokasi_rak as rak 
         FROM barang 
@@ -100,7 +91,7 @@ exports.getDashboard = async (req, res) => {
         ORDER BY stok ASC 
         LIMIT 5
       `),
-      // 8. Barang Terbaru
+      // 7. Barang Terbaru
       queryPromise(`
         SELECT nama_barang, kode_barang, satuan, created_at
         FROM barang
@@ -108,7 +99,7 @@ exports.getDashboard = async (req, res) => {
         ORDER BY created_at DESC
         LIMIT 5
       `),
-      // 9. Mutasi Terbaru
+      // 8. Mutasi Terbaru
       queryPromise(`
         SELECT * FROM (
           (SELECT 'masuk' as jenis, b.nama_barang, b.foto, sm.jumlah, sm.tanggal, sm.keterangan, sm.id
@@ -134,7 +125,6 @@ exports.getDashboard = async (req, res) => {
       barang_masuk_bulanan: masuk,
       barang_keluar_bulanan: keluar,
       top_barang_keluar: top,
-      aktivitas_terbaru: log,
       status_pengajuan: statusData,
       stok_rendah: lowStock,
       barang_terbaru: latest,

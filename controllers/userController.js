@@ -6,10 +6,17 @@ const bcrypt = require("bcryptjs");
 // =============================
 exports.getUsers = (req, res) => {
   const sql = `
-    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.created_at,
-           r.nama_role as role
+    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.avatar, u.created_at,
+           u.jabatan_id, u.id_dept, u.id_subdept, u.role_id,
+           r.nama_role as role,
+           j.nama_jabatan as jabatan,
+           d.nama_dept as departemen,
+           sd.nama_sub as sub_departemen
     FROM users u
     JOIN roles r ON u.role_id = r.id
+    LEFT JOIN jabatans j ON u.jabatan_id = j.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
     ORDER BY u.created_at DESC
   `;
 
@@ -26,10 +33,17 @@ exports.getUserById = (req, res) => {
   const { id } = req.params;
 
   const sql = `
-    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.role_id, u.created_at,
-           r.nama_role as role
+    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.avatar, u.created_at,
+           u.jabatan_id, u.id_dept, u.id_subdept, u.role_id,
+           r.nama_role as role,
+           j.nama_jabatan as jabatan,
+           d.nama_dept as departemen,
+           sd.nama_sub as sub_departemen
     FROM users u
     JOIN roles r ON u.role_id = r.id
+    LEFT JOIN jabatans j ON u.jabatan_id = j.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
     WHERE u.id = ?
   `;
 
@@ -44,7 +58,7 @@ exports.getUserById = (req, res) => {
 // 3. CREATE USER
 // =============================
 exports.createUser = (req, res) => {
-  const { nup, nama, email, password, role_id, no_telp, jabatan, departemen } = req.body;
+  const { nup, nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept } = req.body;
 
   if (!nup || !nama || !role_id || !password) {
     return res.status(400).json({ message: "NUP, Nama, Password, dan Role wajib diisi" });
@@ -60,11 +74,11 @@ exports.createUser = (req, res) => {
     const hashedPassword = bcrypt.hashSync(password, 8);
 
     const sql = `
-      INSERT INTO users (nup, nama, email, password, role_id, no_telp, jabatan, departemen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (nup, nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan || null, departemen || null], (err2, result) => {
+    db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan_id || null, id_dept || null, id_subdept || null], (err2, result) => {
       if (err2) return res.status(500).json(err2);
       res.json({ message: "User berhasil ditambahkan", id: result.insertId });
     });
@@ -76,7 +90,7 @@ exports.createUser = (req, res) => {
 // =============================
 exports.updateUser = (req, res) => {
   const { id } = req.params;
-  const { nup, nama, email, role_id, no_telp, jabatan, departemen } = req.body;
+  const { nup, nama, email, role_id, no_telp, jabatan_id, id_dept, id_subdept } = req.body;
 
   if (!nup || !nama || !role_id) {
     return res.status(400).json({ message: "NUP, Nama, dan Role wajib diisi" });
@@ -90,11 +104,11 @@ exports.updateUser = (req, res) => {
     }
 
     const sql = `
-      UPDATE users SET nup=?, nama=?, email=?, role_id=?, no_telp=?, jabatan=?, departemen=?
+      UPDATE users SET nup=?, nama=?, email=?, role_id=?, no_telp=?, jabatan_id=?, id_dept=?, id_subdept=?
       WHERE id=?
     `;
 
-    db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan || null, departemen || null, id], (err2) => {
+    db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan_id || null, id_dept || null, id_subdept || null, id], (err2) => {
       if (err2) return res.status(500).json(err2);
       res.json({ message: "User berhasil diupdate" });
     });
@@ -165,10 +179,17 @@ exports.getMyProfile = (req, res) => {
   const userId = req.user.id;
 
   const sql = `
-    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.jabatan, u.departemen, u.avatar, u.created_at,
-           r.nama_role as role
+    SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.avatar, u.created_at,
+           u.jabatan_id, u.id_dept, u.id_subdept,
+           r.nama_role as role,
+           j.nama_jabatan as jabatan,
+           d.nama_dept as departemen,
+           sd.nama_sub as sub_departemen
     FROM users u
     JOIN roles r ON u.role_id = r.id
+    LEFT JOIN jabatans j ON u.jabatan_id = j.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
     WHERE u.id = ?
   `;
 
@@ -184,14 +205,11 @@ exports.getMyProfile = (req, res) => {
 // =============================
 exports.updateMyProfile = (req, res) => {
   const userId = req.user.id;
-  const { nama, no_telp, jabatan, departemen } = req.body;
+  const { nama, no_telp } = req.body;
 
-  const sql = `
-    UPDATE users SET nama=?, no_telp=?, jabatan=?, departemen=?
-    WHERE id=?
-  `;
+  const sql = `UPDATE users SET nama=?, no_telp=? WHERE id=?`;
 
-  db.query(sql, [nama, no_telp || null, jabatan || null, departemen || null, userId], (err) => {
+  db.query(sql, [nama, no_telp || null, userId], (err) => {
     if (err) return res.status(500).json(err);
     res.json({ message: "Profil berhasil diupdate" });
   });
@@ -245,5 +263,36 @@ exports.getNextNup = (req, res) => {
     }
     
     res.json({ nextNup });
+  });
+};
+
+// =============================
+// 12. MASTER DATA: JABATAN
+// =============================
+exports.getJabatans = (req, res) => {
+  db.query("SELECT * FROM jabatans ORDER BY id", (err, result) => {
+    if (err) return res.status(500).json(err);
+    res.json(result);
+  });
+};
+
+// =============================
+// 13. MASTER DATA: DEPARTEMEN
+// =============================
+exports.getDepartments = (req, res) => {
+  db.query("SELECT * FROM departments ORDER BY id", (err, result) => {
+    if (err) return res.status(500).json(err);
+    res.json(result);
+  });
+};
+
+// =============================
+// 14. MASTER DATA: SUB-DEPARTEMEN
+// =============================
+exports.getSubDepartments = (req, res) => {
+  const { id } = req.params;
+  db.query("SELECT * FROM sub_departments WHERE id_dept = ? ORDER BY id", [id], (err, result) => {
+    if (err) return res.status(500).json(err);
+    res.json(result);
   });
 };

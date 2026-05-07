@@ -12,6 +12,13 @@ router.put("/profile/me", verifyToken, userController.updateMyProfile);
 router.put("/profile/change-password", verifyToken, userController.changeMyPassword);
 
 // =============================
+// MASTER DATA: JABATAN, DEPARTEMEN, SUB-DEPT
+// =============================
+router.get("/jabatans", verifyToken, userController.getJabatans);
+router.get("/departments", verifyToken, userController.getDepartments);
+router.get("/departments/:id/sub", verifyToken, userController.getSubDepartments);
+
+// =============================
 // ADMIN ONLY: KELOLA USER
 // =============================
 router.get("/", verifyToken, allowRoles("admin"), userController.getUsers);
