@@ -58,19 +58,27 @@ exports.getUserById = (req, res) => {
 // 3. CREATE USER
 // =============================
 exports.createUser = (req, res) => {
-  const { nup, nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept } = req.body;
+  const { nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept } = req.body;
 
-  if (!nup || !nama || !role_id || !password) {
-    return res.status(400).json({ message: "NUP, Nama, Password, dan Role wajib diisi" });
+  if (!nama || !role_id || !password || !id_dept || !id_subdept) {
+    return res.status(400).json({ message: "Nama, Password, Role, Dept, dan Sub-Dept wajib diisi" });
   }
 
-  // Cek duplikat NUP
-  db.query("SELECT id FROM users WHERE nup = ?", [nup], (err, existing) => {
+  // 1. GENERATE NUP OTOMATIS
+  // Format: [DEPT_ID 2 digit][SUBDEPT_ID 2 digit][URUTAN 3 digit]
+  const prefix = `${id_dept.toString().padStart(2, '0')}${id_subdept.toString().padStart(2, '0')}`;
+  
+  const findLastNupSql = "SELECT nup FROM users WHERE nup LIKE ? ORDER BY nup DESC LIMIT 1";
+  db.query(findLastNupSql, [`${prefix}%`], (err, result) => {
     if (err) return res.status(500).json(err);
-    if (existing.length > 0) {
-      return res.status(400).json({ message: "NUP sudah terdaftar" });
+
+    let sequence = "001";
+    if (result.length > 0) {
+      const lastSeq = parseInt(result[0].nup.slice(-3));
+      sequence = (lastSeq + 1).toString().padStart(3, '0');
     }
 
+    const nup = `${prefix}${sequence}`;
     const hashedPassword = bcrypt.hashSync(password, 8);
 
     const sql = `
@@ -78,9 +86,13 @@ exports.createUser = (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan_id || null, id_dept || null, id_subdept || null], (err2, result) => {
+    db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan_id || null, id_dept, id_subdept], (err2, result2) => {
       if (err2) return res.status(500).json(err2);
-      res.json({ message: "User berhasil ditambahkan", id: result.insertId });
+      res.json({ 
+        message: "User berhasil ditambahkan", 
+        nup: nup,
+        id: result2.insertId 
+      });
     });
   });
 };
