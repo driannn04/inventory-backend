@@ -273,8 +273,157 @@ exports.exportBarangMasukPDF = (req, res) => {
   });
 };
 
-// Excel Stubs (Jika dibutuhkan kedepannya)
-exports.exportBarangKeluarExcel = (req, res) => { res.status(501).send("Excel export not implemented yet in this version."); };
-exports.exportBarangMasukExcel = (req, res) => { res.status(501).send("Excel export not implemented yet."); };
-exports.exportStokExcel = (req, res) => { res.status(501).send("Excel export not implemented yet."); };
-exports.exportPengajuanExcel = (req, res) => { res.status(501).send("Excel export not implemented yet."); };
+// ==========================================
+// EXPORT EXCEL IMPLEMENTATIONS
+// ==========================================
+
+exports.exportBarangKeluarExcel = async (req, res) => {
+  const { start, end } = req.query;
+  const { role, id_dept, id_subdept } = req.user;
+
+  let sql = `
+    SELECT b.nama_barang, sk.jumlah, b.satuan, sk.tanggal, u.nama as pemohon, sd.nama_sub as unit
+    FROM stok_keluar sk
+    JOIN barang b ON sk.barang_id = b.id
+    LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
+    LEFT JOIN users u ON p.user_id = u.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    WHERE DATE(sk.tanggal) BETWEEN ? AND ?
+  `;
+  const params = [start, end];
+  if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
+  else if (role === "asisten_manager") { sql += " AND u.id_subdept = ?"; params.push(id_subdept); }
+  sql += " ORDER BY sk.tanggal DESC";
+
+  db.query(sql, params, async (err, rows) => {
+    if (err) return res.status(500).json(err);
+    
+    const workbook = new excel.Workbook();
+    const sheet = workbook.addWorksheet("Barang Keluar");
+    
+    sheet.columns = [
+      { header: "No", key: "no", width: 5 },
+      { header: "Nama Barang", key: "nama_barang", width: 30 },
+      { header: "Penerima", key: "penerima", width: 20 },
+      { header: "Unit", key: "unit", width: 25 },
+      { header: "Jumlah", key: "jumlah", width: 10 },
+      { header: "Satuan", key: "satuan", width: 10 },
+      { header: "Tanggal", key: "tanggal", width: 15 }
+    ];
+
+    rows.forEach((r, i) => {
+      sheet.addRow({
+        no: i + 1,
+        nama_barang: r.nama_barang,
+        penerima: r.pemohon || "-",
+        unit: r.unit || "-",
+        jumlah: r.jumlah,
+        satuan: r.satuan,
+        tanggal: new Date(r.tanggal).toLocaleDateString("id-ID")
+      });
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=barang_keluar.xlsx");
+    await workbook.xlsx.write(res);
+    res.end();
+  });
+};
+
+exports.exportBarangMasukExcel = async (req, res) => {
+  const { start, end } = req.query;
+  const sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE DATE(sm.tanggal) BETWEEN ? AND ? ORDER BY sm.tanggal DESC`;
+  
+  db.query(sql, [start, end], async (err, rows) => {
+    if (err) return res.status(500).json(err);
+    const workbook = new excel.Workbook();
+    const sheet = workbook.addWorksheet("Barang Masuk");
+    sheet.columns = [
+      { header: "No", key: "no", width: 5 },
+      { header: "Nama Barang", key: "nama_barang", width: 35 },
+      { header: "Jumlah", key: "jumlah", width: 10 },
+      { header: "Satuan", key: "satuan", width: 10 },
+      { header: "Tanggal", key: "tanggal", width: 15 },
+      { header: "Keterangan", key: "keterangan", width: 30 }
+    ];
+    rows.forEach((r, i) => {
+      sheet.addRow({ no: i + 1, nama_barang: r.nama_barang, jumlah: r.jumlah, satuan: r.satuan, tanggal: new Date(r.tanggal).toLocaleDateString("id-ID"), keterangan: r.keterangan || "-" });
+    });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=barang_masuk.xlsx");
+    await workbook.xlsx.write(res);
+    res.end();
+  });
+};
+
+exports.exportStokExcel = async (req, res) => {
+  const sql = "SELECT kode_barang, nama_barang, satuan, stok FROM barang WHERE is_deleted = 0 ORDER BY nama_barang ASC";
+  db.query(sql, async (err, rows) => {
+    if (err) return res.status(500).json(err);
+    const workbook = new excel.Workbook();
+    const sheet = workbook.addWorksheet("Stok Barang");
+    sheet.columns = [
+      { header: "No", key: "no", width: 5 },
+      { header: "Kode", key: "kode", width: 15 },
+      { header: "Nama Barang", key: "nama_barang", width: 40 },
+      { header: "Stok", key: "stok", width: 10 },
+      { header: "Satuan", key: "satuan", width: 10 }
+    ];
+    rows.forEach((r, i) => {
+      sheet.addRow({ no: i + 1, kode: r.kode_barang, nama_barang: r.nama_barang, stok: r.stok, satuan: r.satuan });
+    });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=stok_barang.xlsx");
+    await workbook.xlsx.write(res);
+    res.end();
+  });
+};
+
+exports.exportPengajuanExcel = async (req, res) => {
+  const { start, end } = req.query;
+  const { role, id_dept, id_subdept } = req.user;
+  let sql = `
+    SELECT p.nomor_pengajuan, p.tanggal_pengajuan, p.status, u.nama as pemohon, sd.nama_sub as unit,
+           b.nama_barang, pd.jumlah, b.satuan
+    FROM pengajuan p
+    JOIN pengajuan_detail pd ON p.id = pd.pengajuan_id
+    JOIN barang b ON pd.barang_id = b.id
+    JOIN users u ON p.user_id = u.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    WHERE DATE(p.tanggal_pengajuan) BETWEEN ? AND ?
+  `;
+  const params = [start, end];
+  if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
+  else if (role === "asisten_manager") { sql += " AND u.id_subdept = ?"; params.push(id_subdept); }
+  sql += " ORDER BY p.tanggal_pengajuan DESC";
+
+  db.query(sql, params, async (err, rows) => {
+    if (err) return res.status(500).json(err);
+    const workbook = new excel.Workbook();
+    const sheet = workbook.addWorksheet("Pengajuan");
+    sheet.columns = [
+      { header: "No Pengajuan", key: "nomor", width: 20 },
+      { header: "Tanggal", key: "tanggal", width: 15 },
+      { header: "Pemohon", key: "pemohon", width: 20 },
+      { header: "Unit", key: "unit", width: 20 },
+      { header: "Barang", key: "barang", width: 30 },
+      { header: "Jumlah", key: "jumlah", width: 10 },
+      { header: "Status", key: "status", width: 15 }
+    ];
+    rows.forEach(r => {
+      sheet.addRow({ 
+        nomor: r.nomor_pengajuan, 
+        tanggal: new Date(r.tanggal_pengajuan).toLocaleDateString("id-ID"), 
+        pemohon: r.pemohon, 
+        unit: r.unit || "-", 
+        barang: r.nama_barang, 
+        jumlah: `${r.jumlah} ${r.satuan}`, 
+        status: r.status 
+      });
+    });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=riwayat_pengajuan.xlsx");
+    await workbook.xlsx.write(res);
+    res.end();
+  });
+};
