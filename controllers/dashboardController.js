@@ -49,7 +49,8 @@ exports.getDashboard = async (req, res) => {
       statusData,
       lowStock,
       latest,
-      mutasi
+      mutasi,
+      activity
     ] = await Promise.all([
       // 1. Summary (Difilter sesuai Role)
       queryPromise(`
@@ -126,6 +127,14 @@ exports.getDashboard = async (req, res) => {
         ) as combined
         ORDER BY tanggal DESC, id DESC
         LIMIT 8
+      `),
+      // 9. Aktivitas Terbaru (Audit Log)
+      queryPromise(`
+        SELECT al.aksi, al.keterangan as deskripsi, al.created_at, u.nama as nama_user
+        FROM activity_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        ORDER BY al.created_at DESC
+        LIMIT 10
       `)
     ]);
 
@@ -137,7 +146,8 @@ exports.getDashboard = async (req, res) => {
       status_pengajuan: statusData,
       stok_rendah: lowStock,
       barang_terbaru: latest,
-      mutasi_terbaru: mutasi
+      mutasi_terbaru: mutasi,
+      aktivitas_terbaru: activity
     };
 
     res.json(dashboard);
