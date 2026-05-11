@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const bcrypt = require("bcryptjs");
+const { logActivity } = require("../utils/activityLogger");
 
 // =============================
 // 1. GET ALL USERS
@@ -17,6 +18,7 @@ exports.getUsers = (req, res) => {
     LEFT JOIN jabatans j ON u.jabatan_id = j.id
     LEFT JOIN departments d ON u.id_dept = d.id
     LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    WHERE u.is_active = 1
     ORDER BY u.created_at DESC
   `;
 
@@ -88,6 +90,10 @@ exports.createUser = (req, res) => {
 
     db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan_id || null, id_dept, id_subdept], (err2, result2) => {
       if (err2) return res.status(500).json(err2);
+      
+      // 🔥 LOG AKTIVITAS
+      logActivity(req.user.id, "TAMBAH", "USER", `Mendaftarkan user baru: ${nama} (NUP: ${nup})`, { req, dataBaru: req.body });
+      
       res.json({ 
         message: "User berhasil ditambahkan", 
         nup: nup,
@@ -115,14 +121,21 @@ exports.updateUser = (req, res) => {
       return res.status(400).json({ message: "NUP sudah digunakan user lain" });
     }
 
-    const sql = `
-      UPDATE users SET nup=?, nama=?, email=?, role_id=?, no_telp=?, jabatan_id=?, id_dept=?, id_subdept=?
-      WHERE id=?
-    `;
+    db.query("SELECT * FROM users WHERE id = ?", [id], (errOld, oldRows) => {
+      const dataLama = oldRows?.[0] || null;
 
-    db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan_id || null, id_dept || null, id_subdept || null, id], (err2) => {
-      if (err2) return res.status(500).json(err2);
-      res.json({ message: "User berhasil diupdate" });
+      db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan_id || null, id_dept || null, id_subdept || null, id], (err2) => {
+        if (err2) return res.status(500).json(err2);
+        
+        // 🔥 LOG AKTIVITAS
+        logActivity(req.user.id, "EDIT", "USER", `Mengubah data user: ${nama} (ID: ${id})`, { 
+          req, 
+          dataLama: dataLama, 
+          dataBaru: req.body 
+        });
+        
+        res.json({ message: "User berhasil diupdate" });
+      });
     });
   });
 };
@@ -148,8 +161,12 @@ exports.deleteUser = (req, res) => {
       });
     }
 
-    db.query("DELETE FROM users WHERE id = ?", [id], (err2) => {
+    db.query("UPDATE users SET is_active = 0 WHERE id = ?", [id], (err2) => {
       if (err2) return res.status(500).json(err2);
+      
+      // 🔥 LOG AKTIVITAS
+      logActivity(req.user.id, "HAPUS", "USER", `Menghapus user ID: ${id}`, { req });
+      
       res.json({ message: "User berhasil dihapus" });
     });
   });
@@ -170,6 +187,10 @@ exports.resetPassword = (req, res) => {
 
   db.query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, id], (err) => {
     if (err) return res.status(500).json(err);
+    
+    // 🔥 LOG AKTIVITAS
+    logActivity(req.user.id, "EDIT", "USER", `Melakukan reset password untuk user ID: ${id}`, { req });
+    
     res.json({ message: "Password berhasil direset" });
   });
 };

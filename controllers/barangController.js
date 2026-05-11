@@ -4,6 +4,7 @@ const response = require("../utils/response");
 const XLSX = require("xlsx");
 const PDFDocument = require("pdfkit");
 const { kirimNotifikasi, kirimNotifikasiByRole } = require("../utils/notifikasi");
+const { logActivity } = require("../utils/activityLogger");
 
 // 🔥 AUTO GENERATE KODE BARANG
 const generateKodeBarang = () => {
@@ -127,7 +128,7 @@ exports.getBarang = (req, res) => {
           AND p.status IN ('pending_asisten_manager', 'pending_manager', 'pending_gudang')
       ), 0))) as stok_tersedia
     FROM barang b
-    JOIN kategori_barang k ON b.kategori_id = k.id
+    LEFT JOIN kategori_barang k ON b.kategori_id = k.id
     WHERE b.is_deleted = 0
   `;
 
@@ -207,9 +208,8 @@ VALUES (?,?,?,?,?,?,?,?)
         }
 
         // 🔥 LOG AKTIVITAS
-        const { logActivity } = require("../utils/activityLogger");
         const msg = `Berhasil mendaftarkan barang baru: [${kode_barang}] ${nama_barang} dengan stok awal ${stok} ${satuan}.`;
-        logActivity(req.user.id, "TAMBAH", "BARANG", msg);
+        logActivity(req.user.id, "TAMBAH", "BARANG", msg, { req, dataBaru: req.body });
         
         // 🔥 NOTIFIKASI BARANG BARU
         kirimNotifikasiByRole("admin", "Registrasi Barang Baru", msg);
@@ -302,25 +302,35 @@ foto = COALESCE(?, foto)
 WHERE id = ?
 `;
 
-  db.query(sql, [
-    nama_barang,
-    kategori_id,
-    satuan,
-    stok,
-    stok_minimum,
-    lokasi_rak,
-    foto,
-    id
-  ], (err, result) => {
+  db.query("SELECT * FROM barang WHERE id = ?", [id], (errOld, oldRows) => {
+    const dataLama = oldRows?.[0] || null;
 
-    if (err) {
-      return res.status(500).json(err);
-    }
+    db.query(sql, [
+      nama_barang,
+      kategori_id,
+      satuan,
+      stok,
+      stok_minimum,
+      lokasi_rak,
+      foto,
+      id
+    ], (err, result) => {
 
-    res.json({
-      message: "Barang berhasil diupdate"
+      if (err) {
+        return res.status(500).json(err);
+      }
+
+      // 🔥 LOG AKTIVITAS (DENGAN DETAIL PERUBAHAN)
+      logActivity(req.user.id, "EDIT", "BARANG", `Mengubah informasi barang: [${id}] ${nama_barang}`, { 
+        req, 
+        dataLama: dataLama,
+        dataBaru: req.body 
+      });
+
+      res.json({
+        message: "Barang berhasil diupdate"
+      });
     });
-
   });
 
 };
@@ -339,6 +349,9 @@ exports.deleteBarang = (req, res) => {
       if (err) return res.status(500).json(err);
 
       res.json({ message: "Barang berhasil dinonaktifkan" });
+
+      // 🔥 LOG AKTIVITAS
+      logActivity(req.user.id, "HAPUS", "BARANG", `Menonaktifkan barang: [${b.kode_barang}] ${b.nama_barang}`, { req });
 
       // 🔥 NOTIFIKASI HAPUS BARANG (DETAIL)
       const msg = `Barang [${b.kode_barang}] ${b.nama_barang} telah dinonaktifkan dari sistem oleh Admin.`;

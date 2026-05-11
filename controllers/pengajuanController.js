@@ -73,7 +73,7 @@ exports.createPengajuan = (req, res) => {
                 if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
                 conn.release();
                 
-                logActivity(user_id, "TAMBAH", "PENGAJUAN", `Membuat pengajuan baru: ${nomor}`);
+                logActivity(user_id, "TAMBAH", "PENGAJUAN", `Membuat pengajuan baru: ${nomor}`, { req, dataBaru: items });
                 
                 // Ambil id_dept & id_subdept user pembuat untuk kirim notif ke atasan se-departemen/se-unit
                 db.query("SELECT id_dept, id_subdept FROM users WHERE id = ?", [user_id], (err, uRows) => {
@@ -242,20 +242,20 @@ exports.approvePengajuan = (req, res) => {
                 await new Promise((rs, rj) => conn.query("UPDATE barang SET stok = stok - ? WHERE id = ?", [item.jumlah, item.barang_id], (e) => e ? rj(e) : rs()));
                 await new Promise((rs, rj) => conn.query("INSERT INTO stok_keluar (barang_id, pengajuan_id, jumlah, tanggal, keterangan) VALUES (?,?,?,NOW(),?)", [item.barang_id, pengajuan_id, item.jumlah, `Pengajuan: ${p.nomor_pengajuan}`], (e) => e ? rj(e) : rs()));
               }
-              finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res);
+              finishApproval(req, conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res);
             } catch (e) {
               conn.rollback(() => { conn.release(); res.status(400).json({ message: e.message }); });
             }
           });
         } else {
-          finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res);
+          finishApproval(req, conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res);
         }
       });
     });
   });
 };
 
-function finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res) {
+function finishApproval(req, conn, pengajuan_id, user_id, role, roleName, nextStatus, p, res) {
   conn.query("UPDATE pengajuan SET status=? WHERE id=?", [nextStatus, pengajuan_id], (err) => {
     if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
     conn.query("INSERT INTO approval (pengajuan_id, approved_by, role, status, tanggal) VALUES (?,?,?, 'approved', NOW())", [pengajuan_id, user_id, role], (err) => {
@@ -265,11 +265,11 @@ function finishApproval(conn, pengajuan_id, user_id, role, roleName, nextStatus,
         conn.release();
         
         // 1. LOG APPROVAL
-        logActivity(user_id, "APPROVE", "PENGAJUAN", `Persetujuan ${roleName} untuk Pengajuan ${p.nomor_pengajuan}`);
+        logActivity(user_id, "APPROVE", "PENGAJUAN", `Persetujuan ${roleName} untuk Pengajuan ${p.nomor_pengajuan}`, { req });
         
         // 2. LOG STOK KELUAR (Khusus Gudang)
         if (role === "gudang") {
-          logActivity(user_id, "PENGELUARAN", "STOK KELUAR", `Otomatis melalui penyelesaian Pengajuan ${p.nomor_pengajuan}`);
+          logActivity(user_id, "PENGELUARAN", "STOK KELUAR", `Otomatis melalui penyelesaian Pengajuan ${p.nomor_pengajuan}`, { req });
         }
         
         // 3. NOTIFIKASI USER (PEMOHON)
@@ -319,7 +319,7 @@ exports.rejectPengajuan = (req, res) => {
               conn.release();
 
               if (pData) {
-                logActivity(user_id, "REJECT", "PENGAJUAN", `Penolakan Pengajuan ${pData.nomor_pengajuan} oleh ${role}`);
+                logActivity(user_id, "REJECT", "PENGAJUAN", `Penolakan Pengajuan ${pData.nomor_pengajuan} oleh ${role}`, { req });
                 kirimNotifikasi(pData.user_id, "Pengajuan Ditolak", `Maaf, pengajuan ${pData.nomor_pengajuan} Anda ditolak oleh ${role}. Alasan: ${catatan}`);
               }
               res.json({ message: "Pengajuan ditolak" });
@@ -353,6 +353,10 @@ exports.deletePengajuan = (req, res) => {
         conn.commit((err) => {
           if (err) throw err;
           conn.release();
+          
+          // 🔥 LOG AKTIVITAS
+          logActivity(req.user.id, "HAPUS", "PENGAJUAN", `Menghapus draf/data pengajuan ID: ${id}`, { req });
+          
           res.json({ message: "Berhasil dihapus" });
         });
       } catch (e) { conn.rollback(() => { conn.release(); res.status(500).json(e); }); }
@@ -376,6 +380,10 @@ exports.updatePengajuan = (req, res) => {
         conn.commit((err) => {
           if (err) throw err;
           conn.release();
+
+          // 🔥 LOG AKTIVITAS
+          logActivity(req.user.id, "EDIT", "PENGAJUAN", `Mengubah data pengajuan ID: ${id}`, { req, dataBaru: items });
+
           res.json({ message: "Berhasil diupdate" });
         });
       } catch (e) { conn.rollback(() => { conn.release(); res.status(500).json(e); }); }

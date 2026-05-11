@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { logActivity } = require("../utils/activityLogger");
 
 // Registrasi Mandiri dihapus untuk keamanan sistem internal. 
 // User hanya bisa dibuat oleh Admin melalui menu Manajemen User.
@@ -44,6 +45,9 @@ exports.login = (req, res) => {
       process.env.JWT_SECRET || "secretkey",
       { expiresIn: "1d" }
     );
+
+    // 🔥 CATAT LOG LOGIN (Sekarang dengan IP & Device info)
+    logActivity(user.id, "LOGIN", "SISTEM", "User berhasil masuk ke dalam sistem", { req });
 
     res.json({
       message: "Login berhasil",
