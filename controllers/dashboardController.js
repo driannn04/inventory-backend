@@ -79,11 +79,13 @@ exports.getDashboard = async (req, res) => {
       `),
       // 4. Top Barang Keluar
       queryPromise(`
-        SELECT b.nama_barang, SUM(sk.jumlah) as total_keluar
+        SELECT b.id, b.nama_barang, b.kode_barang, b.foto, b.stok, b.satuan, b.lokasi_rak, 
+               SUM(sk.jumlah) as total_keluar, k.nama_kategori as kategori
         FROM stok_keluar sk
         JOIN barang b ON sk.barang_id = b.id
+        LEFT JOIN kategori_barang k ON b.kategori_id = k.id
         ${topFilter}
-        GROUP BY sk.barang_id, b.nama_barang
+        GROUP BY b.id
         ORDER BY total_keluar DESC
         LIMIT 5
       `),
@@ -96,7 +98,7 @@ exports.getDashboard = async (req, res) => {
       `),
       // 6. Stok Rendah
       queryPromise(`
-        SELECT nama_barang, stok, stok_minimum, lokasi_rak as rak 
+        SELECT id, nama_barang, stok, stok_minimum, lokasi_rak as rak 
         FROM barang 
         WHERE stok <= stok_minimum AND is_deleted = 0
         ORDER BY stok ASC 
@@ -104,10 +106,12 @@ exports.getDashboard = async (req, res) => {
       `),
       // 7. Barang Terbaru
       queryPromise(`
-        SELECT nama_barang, kode_barang, satuan, created_at
-        FROM barang
-        WHERE is_deleted = 0
-        ORDER BY created_at DESC
+        SELECT b.id, b.nama_barang, b.kode_barang, b.satuan, b.stok, b.foto, b.lokasi_rak, 
+               b.created_at, k.nama_kategori as kategori
+        FROM barang b
+        LEFT JOIN kategori_barang k ON b.kategori_id = k.id
+        WHERE b.is_deleted = 0
+        ORDER BY b.created_at DESC
         LIMIT 5
       `),
       // 8. Mutasi Terbaru

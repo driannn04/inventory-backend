@@ -1,9 +1,21 @@
 const db = require("../config/db");
 const { logActivity } = require("../utils/activityLogger");
 
-// 1. GET ALL KATEGORI
+// 1. GET ALL KATEGORI (WITH ADVANCED INSIGHTS)
 exports.getKategori = (req, res) => {
-  const sql = "SELECT * FROM kategori_barang WHERE is_active = 1 ORDER BY id ASC";
+  const sql = `
+    SELECT 
+      k.*, 
+      COUNT(b.id) as total_barang,
+      IFNULL(SUM(b.stok), 0) as total_stok,
+      COUNT(CASE WHEN b.stok <= b.stok_minimum AND b.is_deleted = 0 THEN 1 END) as stok_kritis,
+      (SELECT b2.nama_barang FROM barang b2 WHERE b2.kategori_id = k.id AND b2.is_deleted = 0 ORDER BY b2.id DESC LIMIT 1) as barang_terakhir
+    FROM kategori_barang k
+    LEFT JOIN barang b ON k.id = b.kategori_id AND b.is_deleted = 0
+    WHERE k.is_active = 1 
+    GROUP BY k.id
+    ORDER BY k.id ASC
+  `;
   db.query(sql, (err, result) => {
     if (err) return res.status(500).json(err);
     res.json(result);
