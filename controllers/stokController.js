@@ -33,9 +33,9 @@ exports.tambahStokMasuk = (req, res) => {
               if (rows?.[0]) {
                 const b = rows[0];
                 const msg = `Penerimaan barang [${b.kode_barang}] ${b.nama_barang} sebanyak ${jumlah} ${b.satuan}. Ket: ${keterangan || '-'}`;
-                logActivity(req.user.id, "MASUK", "STOK MASUK", msg);
-                kirimNotifikasiByRole("admin", "Penerimaan Barang", msg);
-                kirimNotifikasiByRole("gudang", "Penerimaan Barang", msg);
+                logActivity(req.user.id, "MASUK", "STOK MASUK", msg, { req });
+                kirimNotifikasiByRole("admin", "Penerimaan Barang", msg, "success");
+                kirimNotifikasiByRole("gudang", "Penerimaan Barang", msg, "success");
               }
             });
 
@@ -81,14 +81,14 @@ exports.tambahStokKeluar = (req, res) => {
 
               // 🔥 LOG, NOTIF & MINIMUM CHECK
               if (b.stok - jumlah <= b.stok_minimum) {
-                kirimNotifikasiByRole("admin", "⚠️ Perhatian: Stok Menipis", `Barang ${b.nama_barang} kini tersisa ${b.stok - jumlah}. Segera lakukan pengadaan.`);
+                kirimNotifikasiByRole("admin", "⚠️ Perhatian: Stok Menipis", `Barang ${b.nama_barang} kini tersisa ${b.stok - jumlah}. Segera lakukan pengadaan.`, "danger");
               }
 
               const msg = `Pengeluaran barang [${b.kode_barang}] ${b.nama_barang} sebanyak ${jumlah} ${b.satuan}. Ket: ${keterangan || '-'}`;
-              logActivity(req.user.id, "KELUAR", "STOK KELUAR", msg);
+              logActivity(req.user.id, "KELUAR", "STOK KELUAR", msg, { req });
               
-              kirimNotifikasiByRole("admin", "Pengeluaran Barang", msg);
-              kirimNotifikasiByRole("gudang", "Pengeluaran Barang", msg);
+              kirimNotifikasiByRole("admin", "Pengeluaran Barang", msg, "warning");
+              kirimNotifikasiByRole("gudang", "Pengeluaran Barang", msg, "warning");
 
               res.json({ message: "Stok berhasil dikurangi" });
             });

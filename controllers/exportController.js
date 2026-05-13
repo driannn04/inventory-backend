@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const PDFDocument = require("pdfkit");
 const excel = require("exceljs");
+const { logActivity } = require("../utils/activityLogger");
 
 const ORG = {
   name: "PDAM TIRTA PAKUAN KOTA BOGOR",
@@ -127,6 +128,7 @@ exports.exportPengajuanPDF = async (req, res) => {
     });
     drawPDFSignature(doc);
     doc.end();
+    logActivity(req.user.id, "EXPORT", "PENGAJUAN", `Mengekspor riwayat pengajuan ke PDF`, { req });
   });
 };
 
@@ -185,6 +187,7 @@ exports.exportBarangKeluarPDF = async (req, res) => {
     });
     drawPDFSignature(doc);
     doc.end();
+    logActivity(req.user.id, "EXPORT", "STOK KELUAR", `Mengekspor riwayat pengeluaran ke PDF`, { req });
   });
 };
 
@@ -227,6 +230,7 @@ exports.exportStokPDF = (req, res) => {
     });
     drawPDFSignature(doc);
     doc.end();
+    logActivity(req.user.id, "EXPORT", "STOK", `Mengekspor laporan stok ke PDF`, { req });
   });
 };
 
@@ -270,6 +274,7 @@ exports.exportBarangMasukPDF = (req, res) => {
     });
     drawPDFSignature(doc);
     doc.end();
+    logActivity(req.user.id, "EXPORT", "STOK MASUK", `Mengekspor riwayat penerimaan ke PDF`, { req });
   });
 };
 
@@ -327,6 +332,7 @@ exports.exportBarangKeluarExcel = async (req, res) => {
     res.setHeader("Content-Disposition", "attachment; filename=barang_keluar.xlsx");
     await workbook.xlsx.write(res);
     res.end();
+    logActivity(req.user.id, "EXPORT", "STOK KELUAR", `Mengekspor riwayat pengeluaran ke Excel`, { req });
   });
 };
 
@@ -353,6 +359,7 @@ exports.exportBarangMasukExcel = async (req, res) => {
     res.setHeader("Content-Disposition", "attachment; filename=barang_masuk.xlsx");
     await workbook.xlsx.write(res);
     res.end();
+    logActivity(req.user.id, "EXPORT", "STOK MASUK", `Mengekspor riwayat penerimaan ke Excel`, { req });
   });
 };
 
@@ -376,6 +383,7 @@ exports.exportStokExcel = async (req, res) => {
     res.setHeader("Content-Disposition", "attachment; filename=stok_barang.xlsx");
     await workbook.xlsx.write(res);
     res.end();
+    logActivity(req.user.id, "EXPORT", "STOK", `Mengekspor laporan stok ke Excel`, { req });
   });
 };
 
@@ -425,5 +433,6 @@ exports.exportPengajuanExcel = async (req, res) => {
     res.setHeader("Content-Disposition", "attachment; filename=riwayat_pengajuan.xlsx");
     await workbook.xlsx.write(res);
     res.end();
+    logActivity(req.user.id, "EXPORT", "PENGAJUAN", `Mengekspor riwayat pengajuan ke Excel`, { req });
   });
 };

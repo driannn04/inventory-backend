@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const XLSX = require("xlsx");
+const { logActivity } = require("../utils/activityLogger");
 
 // 1. GET LOGS (List for UI)
 exports.getLogs = (req, res) => {
@@ -55,16 +56,16 @@ exports.exportLogs = (req, res) => {
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", "attachment; filename=Audit_Log_Inventory.xlsx");
     res.send(buffer);
+
+    // 🔥 LOG EXPORT
+    logActivity(req.user.id, "EXPORT", "AUDIT LOG", `Mengekspor audit log ke Excel`, { req });
   });
 };
 
 // 3. LOG LOGIN (Legacy/Backup)
 exports.logLogin = (req, res) => {
   const { user_id } = req.body;
-  const sql = "INSERT INTO activity_logs (user_id, aksi, tipe_data, keterangan) VALUES (?, 'Login', 'Sistem', 'User berhasil masuk ke sistem')";
-  db.query(sql, [user_id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Login logged" });
-  });
+  logActivity(user_id, "LOGIN", "SISTEM", "User berhasil masuk ke sistem", { req });
+  res.json({ message: "Login logged" });
 };
 

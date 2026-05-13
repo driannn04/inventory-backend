@@ -66,6 +66,9 @@ exports.downloadBackup = async (req, res) => {
     const filename = `backup_pdam_${new Date().toISOString().slice(0,10)}.sql`;
     res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
     res.setHeader("Content-Type", "application/sql");
+    const { logActivity } = require("../utils/activityLogger");
+    logActivity(req.user.id, "BACKUP", "SYSTEM", `Mendownload backup database: ${filename}`, { req });
+
     res.send(sqlDump);
 
   } catch (err) {
@@ -83,7 +86,7 @@ exports.clearCache = (req, res) => {
     sharp.cache(true);
     
     const { logActivity } = require("../utils/activityLogger");
-    logActivity(req.user.id, "CLEAN", "SYSTEM", "Membersihkan cache sistem");
+    logActivity(req.user.id, "CLEAN", "SYSTEM", "Membersihkan cache sistem", { req });
 
     res.json({ message: "Cache sistem berhasil dibersihkan" });
   } catch (err) {

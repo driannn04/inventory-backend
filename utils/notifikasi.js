@@ -3,26 +3,50 @@ const db = require("../config/db");
 // =============================
 // 🔔 NOTIF KE USER LANGSUNG
 // =============================
-exports.kirimNotifikasi = (user_id, judul, pesan) => {
-  const sql = `
-    INSERT INTO notifikasi (user_id, judul, pesan, is_read, created_at)
-    VALUES (?, ?, ?, 0, NOW())
+exports.kirimNotifikasi = (user_id, judul, pesan, tipe = 'info') => {
+  // 🔥 TIPS: GROUPING NOTIFIKASI
+  // Cek apakah ada notifikasi serupa yang belum dibaca dalam 5 menit terakhir
+  const checkSql = `
+    SELECT id, pesan FROM notifikasi 
+    WHERE user_id = ? AND judul = ? AND is_read = 0 AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+    LIMIT 1
   `;
 
-  db.query(sql, [user_id, judul, pesan], (err) => {
-    if (err) {
-      console.log("Notif error:", err);
-    } else {
-      // 1. Realtime Notif (Pop-up & List) untuk penerima asli
+  db.query(checkSql, [user_id, judul], (err, rows) => {
+    if (!err && rows.length > 0) {
+      // Update pesan yang sudah ada daripada menambah baru
+      const existingNotif = rows[0];
+      const newPesan = existingNotif.pesan.includes(pesan) ? existingNotif.pesan : `${existingNotif.pesan}\n${pesan}`;
+      
+      db.query("UPDATE notifikasi SET pesan = ?, created_at = NOW() WHERE id = ?", [newPesan, existingNotif.id]);
+      
+      // Emit socket tetap dilakukan agar UI refresh
       const idStr = String(user_id);
       if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
         global.onlineUsers[idStr].forEach(socketId => {
-          global.io.to(socketId).emit("notif_baru", { judul, pesan });
+          global.io.to(socketId).emit("notif_baru", { judul, pesan, tipe });
         });
       }
+    } else {
+      // Insert baru jika tidak ada yang serupa
+      const sql = `
+        INSERT INTO notifikasi (user_id, judul, pesan, tipe, is_read, created_at)
+        VALUES (?, ?, ?, ?, 0, NOW())
+      `;
 
-      // 2. Sinyal Refresh Badge (Diam) untuk semua Admin agar badge update
-      broadcastRefreshToAdmins([user_id]);
+      db.query(sql, [user_id, judul, pesan, tipe], (err) => {
+        if (err) {
+          console.log("Notif error:", err);
+        } else {
+          const idStr = String(user_id);
+          if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
+            global.onlineUsers[idStr].forEach(socketId => {
+              global.io.to(socketId).emit("notif_baru", { judul, pesan, tipe });
+            });
+          }
+          broadcastRefreshToAdmins([user_id]);
+        }
+      });
     }
   });
 };
@@ -30,7 +54,7 @@ exports.kirimNotifikasi = (user_id, judul, pesan) => {
 // =============================
 // 🔥 NOTIF BERDASARKAN ROLE
 // =============================
-exports.kirimNotifikasiByRole = (role_nama, judul, pesan) => {
+exports.kirimNotifikasiByRole = (role_nama, judul, pesan, tipe = 'info') => {
   const sql = `
     SELECT users.id 
     FROM users
@@ -41,105 +65,49 @@ exports.kirimNotifikasiByRole = (role_nama, judul, pesan) => {
   db.query(sql, [role_nama], (err, users) => {
     if (err) return console.log(err);
 
-    const sentIds = [];
     users.forEach((user) => {
-      sentIds.push(user.id);
-      const insert = `
-        INSERT INTO notifikasi (user_id, judul, pesan, is_read, created_at)
-        VALUES (?, ?, ?, 0, NOW())
-      `;
-      db.query(insert, [user.id, judul, pesan]);
-
-      // Realtime Notif untuk role terkait
-      const idStr = String(user.id);
-      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
-        global.onlineUsers[idStr].forEach(socketId => {
-          global.io.to(socketId).emit("notif_baru", { judul, pesan });
-        });
-      }
+      exports.kirimNotifikasi(user.id, judul, pesan, tipe);
     });
-
-    // Sinyal Refresh Badge untuk Admin (jika admin bukan penerima utama)
-    broadcastRefreshToAdmins(sentIds);
   });
 };
 
 // =============================
 // 🏢 NOTIF BERDASARKAN ROLE + DEPARTEMEN
 // =============================
-exports.kirimNotifikasiByRoleAndDept = (role_nama, dept_id, judul, pesan) => {
-  if (!dept_id) {
-    // Fallback: jika dept_id kosong, kirim ke semua dengan role tersebut
-    return exports.kirimNotifikasiByRole(role_nama, judul, pesan);
-  }
+exports.kirimNotifikasiByRoleAndDept = (role_nama, dept_id, judul, pesan, tipe = 'info') => {
+  if (!dept_id) return exports.kirimNotifikasiByRole(role_nama, judul, pesan, tipe);
 
   const sql = `
-    SELECT u.id 
-    FROM users u
+    SELECT u.id FROM users u
     JOIN roles r ON u.role_id = r.id
     WHERE r.nama_role = ? AND u.id_dept = ?
   `;
 
   db.query(sql, [role_nama, dept_id], (err, users) => {
     if (err) return console.log(err);
-
-    const sentIds = [];
     users.forEach((user) => {
-      sentIds.push(user.id);
-      const insert = `
-        INSERT INTO notifikasi (user_id, judul, pesan, is_read, created_at)
-        VALUES (?, ?, ?, 0, NOW())
-      `;
-      db.query(insert, [user.id, judul, pesan]);
-
-      const idStr = String(user.id);
-      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
-        global.onlineUsers[idStr].forEach(socketId => {
-          global.io.to(socketId).emit("notif_baru", { judul, pesan });
-        });
-      }
+      exports.kirimNotifikasi(user.id, judul, pesan, tipe);
     });
-
-    broadcastRefreshToAdmins(sentIds);
   });
 };
 
 // =============================
 // 🧩 NOTIF BERDASARKAN ROLE + SUB-DEPT
 // =============================
-exports.kirimNotifikasiByRoleAndSubDept = (role_nama, sub_dept_id, judul, pesan) => {
-  if (!sub_dept_id) {
-    return exports.kirimNotifikasiByRole(role_nama, judul, pesan);
-  }
+exports.kirimNotifikasiByRoleAndSubDept = (role_nama, sub_dept_id, judul, pesan, tipe = 'info') => {
+  if (!sub_dept_id) return exports.kirimNotifikasiByRole(role_nama, judul, pesan, tipe);
 
   const sql = `
-    SELECT u.id 
-    FROM users u
+    SELECT u.id FROM users u
     JOIN roles r ON u.role_id = r.id
     WHERE r.nama_role = ? AND u.id_subdept = ?
   `;
 
   db.query(sql, [role_nama, sub_dept_id], (err, users) => {
     if (err) return console.log(err);
-
-    const sentIds = [];
     users.forEach((user) => {
-      sentIds.push(user.id);
-      const insert = `
-        INSERT INTO notifikasi (user_id, judul, pesan, is_read, created_at)
-        VALUES (?, ?, ?, 0, NOW())
-      `;
-      db.query(insert, [user.id, judul, pesan]);
-
-      const idStr = String(user.id);
-      if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
-        global.onlineUsers[idStr].forEach(socketId => {
-          global.io.to(socketId).emit("notif_baru", { judul, pesan });
-        });
-      }
+      exports.kirimNotifikasi(user.id, judul, pesan, tipe);
     });
-
-    broadcastRefreshToAdmins(sentIds);
   });
 };
 

@@ -81,17 +81,17 @@ exports.createPengajuan = (req, res) => {
                   const userSubDeptId = uRows && uRows[0] ? uRows[0].id_subdept : null;
                   
                   // NOTIF USER
-                  kirimNotifikasi(user_id, "Berhasil Terkirim", `Pengajuan ${nomor} Anda telah berhasil dibuat dan sedang menunggu antrean approval.`);
+                  kirimNotifikasi(user_id, "Berhasil Terkirim", `Pengajuan ${nomor} Anda telah berhasil dibuat dan sedang menunggu antrean approval.`, "success");
                   
                   // NOTIF ROLE TERKAIT (SE-DEPARTEMEN / SE-UNIT)
                   if (role === "manager") {
-                    kirimNotifikasiByRole("gudang", "Pengajuan Siap Diproses", `Ada pengajuan baru ${nomor} yang menunggu untuk Anda proses.`);
+                    kirimNotifikasiByRole("gudang", "Pengajuan Siap Diproses", `Ada pengajuan baru ${nomor} yang menunggu untuk Anda proses.`, "info");
                   } else if (role === "asisten_manager") {
                     // Asmen kirim ke Manager se-Departemen
-                    kirimNotifikasiByRoleAndDept("manager", userDeptId, "Butuh Approval Anda", `Pengajuan ${nomor} telah divalidasi Asmen dan menunggu persetujuan Anda.`);
+                    kirimNotifikasiByRoleAndDept("manager", userDeptId, "Butuh Approval Anda", `Pengajuan ${nomor} telah divalidasi Asmen dan menunggu persetujuan Anda.`, "info");
                   } else {
                     // Staff kirim ke Asmen se-Unit (Sub-Dept)
-                    kirimNotifikasiByRoleAndSubDept("asisten_manager", userSubDeptId, "Pengajuan Baru Masuk", `Staff telah membuat pengajuan baru ${nomor}. Silakan periksa dan lakukan validasi.`);
+                    kirimNotifikasiByRoleAndSubDept("asisten_manager", userSubDeptId, "Pengajuan Baru Masuk", `Staff telah membuat pengajuan baru ${nomor}. Silakan periksa dan lakukan validasi.`, "info");
                   }
                 });
 
@@ -274,19 +274,19 @@ function finishApproval(req, conn, pengajuan_id, user_id, role, roleName, nextSt
         
         // 3. NOTIFIKASI USER (PEMOHON)
         if (role === "gudang") {
-          kirimNotifikasi(p.user_id, "Pengajuan Selesai", `Kabar baik! Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok barang Anda telah resmi dikeluarkan.`);
+          kirimNotifikasi(p.user_id, "Pengajuan Selesai", `Kabar baik! Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok barang Anda telah resmi dikeluarkan.`, "success");
         } else {
-          kirimNotifikasi(p.user_id, "Pengajuan Disetujui", `Pengajuan ${p.nomor_pengajuan} Anda telah disetujui oleh ${roleName}.`);
+          kirimNotifikasi(p.user_id, "Pengajuan Disetujui", `Pengajuan ${p.nomor_pengajuan} Anda telah disetujui oleh ${roleName}.`, "success");
         }
         
         // 4. NOTIFIKASI NEXT STEP / ADMIN
         // Ambil dept pembuat pengajuan untuk notif se-departemen
         db.query("SELECT id_dept FROM users WHERE id = ?", [p.user_id], (err, uRows) => {
           const deptId = uRows && uRows[0] ? uRows[0].id_dept : null;
-          if (role === "asisten_manager") kirimNotifikasiByRoleAndDept("manager", deptId, "Perlu Persetujuan Anda", `Pengajuan ${p.nomor_pengajuan} menunggu approval Anda.`);
-          if (role === "manager") kirimNotifikasiByRole("gudang", "Siap Diproses", `Pengajuan ${p.nomor_pengajuan} sudah disetujui Manager dan siap Anda proses.`);
+          if (role === "asisten_manager") kirimNotifikasiByRoleAndDept("manager", deptId, "Perlu Persetujuan Anda", `Pengajuan ${p.nomor_pengajuan} menunggu approval Anda.`, "info");
+          if (role === "manager") kirimNotifikasiByRole("gudang", "Siap Diproses", `Pengajuan ${p.nomor_pengajuan} sudah disetujui Manager dan siap Anda proses.`, "info");
           if (role === "gudang") {
-            kirimNotifikasiByRole("admin", "Penyelesaian Pengajuan", `Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok telah diperbarui.`);
+            kirimNotifikasiByRole("admin", "Penyelesaian Pengajuan", `Pengajuan ${p.nomor_pengajuan} telah selesai diproses gudang dan stok telah diperbarui.`, "info");
           }
         });
 
@@ -320,7 +320,7 @@ exports.rejectPengajuan = (req, res) => {
 
               if (pData) {
                 logActivity(user_id, "REJECT", "PENGAJUAN", `Penolakan Pengajuan ${pData.nomor_pengajuan} oleh ${role}`, { req });
-                kirimNotifikasi(pData.user_id, "Pengajuan Ditolak", `Maaf, pengajuan ${pData.nomor_pengajuan} Anda ditolak oleh ${role}. Alasan: ${catatan}`);
+                kirimNotifikasi(pData.user_id, "Pengajuan Ditolak", `Maaf, pengajuan ${pData.nomor_pengajuan} Anda ditolak oleh ${role}. Alasan: ${catatan}`, "danger");
               }
               res.json({ message: "Pengajuan ditolak" });
             });
