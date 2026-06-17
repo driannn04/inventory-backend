@@ -70,9 +70,11 @@ exports.login = (req, res) => {
 exports.checkNup = (req, res) => {
   const { nup } = req.params;
   const sql = `
-    SELECT u.nama, r.nama_role as role 
+    SELECT u.nama, r.nama_role as role, d.nama_dept as departemen, sd.nama_sub as sub_departemen
     FROM users u
     JOIN roles r ON u.role_id = r.id 
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
     WHERE u.nup = ?
   `;
   db.query(sql, [nup], (err, result) => {
@@ -82,7 +84,9 @@ exports.checkNup = (req, res) => {
     }
     res.json({
       nama: result[0].nama,
-      role: result[0].role
+      role: result[0].role,
+      departemen: result[0].departemen,
+      sub_departemen: result[0].sub_departemen
     });
   });
 };

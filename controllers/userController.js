@@ -19,7 +19,7 @@ exports.getUsers = (req, res) => {
     LEFT JOIN departments d ON u.id_dept = d.id
     LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
     WHERE u.is_active = 1
-    ORDER BY u.created_at DESC
+    ORDER BY CASE WHEN r.nama_role = 'admin' THEN 1 ELSE 2 END ASC, u.created_at DESC
   `;
 
   db.query(sql, (err, result) => {
@@ -62,42 +62,55 @@ exports.getUserById = (req, res) => {
 exports.createUser = (req, res) => {
   const { nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept } = req.body;
 
-  if (!nama || !role_id || !password || !id_dept || !id_subdept) {
-    return res.status(400).json({ message: "Nama, Password, Role, Dept, dan Sub-Dept wajib diisi" });
+  if (!nama || !role_id || !password) {
+    return res.status(400).json({ message: "Nama, Password, dan Role wajib diisi" });
   }
 
-  // 1. GENERATE NUP OTOMATIS
-  // Format: [DEPT_ID 2 digit][SUBDEPT_ID 2 digit][URUTAN 3 digit]
-  const prefix = `${id_dept.toString().padStart(2, '0')}${id_subdept.toString().padStart(2, '0')}`;
-  
-  const findLastNupSql = "SELECT nup FROM users WHERE nup LIKE ? ORDER BY nup DESC LIMIT 1";
-  db.query(findLastNupSql, [`${prefix}%`], (err, result) => {
-    if (err) return res.status(500).json(err);
+  db.query("SELECT nama_role FROM roles WHERE id = ?", [role_id], (errR, roleRows) => {
+    if (errR) return res.status(500).json(errR);
+    if (roleRows.length === 0) return res.status(400).json({ message: "Role tidak valid" });
 
-    let sequence = "001";
-    if (result.length > 0) {
-      const lastSeq = parseInt(result[0].nup.slice(-3));
-      sequence = (lastSeq + 1).toString().padStart(3, '0');
+    const roleName = roleRows[0].nama_role;
+
+    if (roleName !== "admin" && !id_dept) {
+      return res.status(400).json({ message: "Departemen wajib diisi" });
+    }
+    if ((roleName === "staff" || roleName === "asisten_manager") && !id_subdept) {
+      return res.status(400).json({ message: "Sub-Departemen wajib diisi" });
     }
 
-    const nup = `${prefix}${sequence}`;
-    const hashedPassword = bcrypt.hashSync(password, 8);
+    const deptPrefix = id_dept ? id_dept.toString().padStart(2, '0') : "00";
+    const subDeptPrefix = id_subdept ? id_subdept.toString().padStart(2, '0') : "00";
+    const prefix = `${deptPrefix}${subDeptPrefix}`;
+    
+    const findLastNupSql = "SELECT nup FROM users WHERE nup LIKE ? ORDER BY nup DESC LIMIT 1";
+    db.query(findLastNupSql, [`${prefix}%`], (err, result) => {
+      if (err) return res.status(500).json(err);
 
-    const sql = `
-      INSERT INTO users (nup, nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+      let sequence = "001";
+      if (result.length > 0) {
+        const lastSeq = parseInt(result[0].nup.slice(-3));
+        sequence = (lastSeq + 1).toString().padStart(3, '0');
+      }
 
-    db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan_id || null, id_dept, id_subdept], (err2, result2) => {
-      if (err2) return res.status(500).json(err2);
-      
-      // 🔥 LOG AKTIVITAS
-      logActivity(req.user.id, "TAMBAH", "USER", `Mendaftarkan user baru: ${nama} (NUP: ${nup})`, { req, dataBaru: req.body });
-      
-      res.json({ 
-        message: "User berhasil ditambahkan", 
-        nup: nup,
-        id: result2.insertId 
+      const nup = `${prefix}${sequence}`;
+      const hashedPassword = bcrypt.hashSync(password, 8);
+
+      const sql = `
+        INSERT INTO users (nup, nama, email, password, role_id, no_telp, jabatan_id, id_dept, id_subdept)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      db.query(sql, [nup, nama, email || null, hashedPassword, role_id, no_telp || null, jabatan_id || null, id_dept ? parseInt(id_dept) : null, id_subdept ? parseInt(id_subdept) : null], (err2, result2) => {
+        if (err2) return res.status(500).json(err2);
+        
+        logActivity(req.user.id, "TAMBAH", "USER", `Mendaftarkan user baru: ${nama} (NUP: ${nup})`, { req, dataBaru: req.body });
+        
+        res.json({ 
+          message: "User berhasil ditambahkan", 
+          nup: nup,
+          id: result2.insertId 
+        });
       });
     });
   });
@@ -114,27 +127,47 @@ exports.updateUser = (req, res) => {
     return res.status(400).json({ message: "NUP, Nama, dan Role wajib diisi" });
   }
 
-  // Cek duplikat NUP (kecuali user ini sendiri)
-  db.query("SELECT id FROM users WHERE nup = ? AND id != ?", [nup, id], (err, existing) => {
-    if (err) return res.status(500).json(err);
-    if (existing.length > 0) {
-      return res.status(400).json({ message: "NUP sudah digunakan user lain" });
+  db.query("SELECT nama_role FROM roles WHERE id = ?", [role_id], (errR, roleRows) => {
+    if (errR) return res.status(500).json(errR);
+    if (roleRows.length === 0) return res.status(400).json({ message: "Role tidak valid" });
+
+    const roleName = roleRows[0].nama_role;
+
+    if (roleName !== "admin" && !id_dept) {
+      return res.status(400).json({ message: "Departemen wajib diisi" });
+    }
+    if ((roleName === "staff" || roleName === "asisten_manager") && !id_subdept) {
+      return res.status(400).json({ message: "Sub-Departemen wajib diisi" });
     }
 
-    db.query("SELECT * FROM users WHERE id = ?", [id], (errOld, oldRows) => {
-      const dataLama = oldRows?.[0] || null;
+    // Cek duplikat NUP (kecuali user ini sendiri)
+    db.query("SELECT id FROM users WHERE nup = ? AND id != ?", [nup, id], (err, existing) => {
+      if (err) return res.status(500).json(err);
+      if (existing.length > 0) {
+        return res.status(400).json({ message: "NUP sudah digunakan user lain" });
+      }
 
-      db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan_id || null, id_dept || null, id_subdept || null, id], (err2) => {
-        if (err2) return res.status(500).json(err2);
-        
-        // 🔥 LOG AKTIVITAS
-        logActivity(req.user.id, "EDIT", "USER", `Mengubah data user: ${nama} (ID: ${id})`, { 
-          req, 
-          dataLama: dataLama, 
-          dataBaru: req.body 
+      db.query("SELECT * FROM users WHERE id = ?", [id], (errOld, oldRows) => {
+        const dataLama = oldRows?.[0] || null;
+
+        const sql = `
+          UPDATE users
+          SET nup = ?, nama = ?, email = ?, role_id = ?, no_telp = ?, jabatan_id = ?, id_dept = ?, id_subdept = ?
+          WHERE id = ?
+        `;
+
+        db.query(sql, [nup, nama, email || null, role_id, no_telp || null, jabatan_id || null, id_dept ? parseInt(id_dept) : null, id_subdept ? parseInt(id_subdept) : null, id], (err2) => {
+          if (err2) return res.status(500).json(err2);
+          
+          // 🔥 LOG AKTIVITAS
+          logActivity(req.user.id, "EDIT", "USER", `Mengubah data user: ${nama} (ID: ${id})`, { 
+            req, 
+            dataLama: dataLama, 
+            dataBaru: req.body 
+          });
+          
+          res.json({ message: "User berhasil diupdate" });
         });
-        
-        res.json({ message: "User berhasil diupdate" });
       });
     });
   });
@@ -151,23 +184,33 @@ exports.deleteUser = (req, res) => {
     return res.status(400).json({ message: "Tidak bisa menghapus akun sendiri" });
   }
 
-  // Cek apakah user memiliki pengajuan aktif
-  db.query("SELECT COUNT(*) as total FROM pengajuan WHERE user_id = ?", [id], (err, result) => {
-    if (err) return res.status(500).json(err);
+  // Cek apakah user yang akan dihapus adalah Admin
+  db.query("SELECT u.role_id, r.nama_role FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = ?", [id], (errU, userRows) => {
+    if (errU) return res.status(500).json(errU);
+    if (userRows.length === 0) return res.status(404).json({ message: "User tidak ditemukan" });
 
-    if (result[0].total > 0) {
-      return res.status(400).json({
-        message: "User tidak bisa dihapus karena memiliki riwayat pengajuan. Hubungi database admin."
-      });
+    if (userRows[0].nama_role === "admin") {
+      return res.status(400).json({ message: "User dengan peran Admin tidak dapat dihapus dari sistem." });
     }
 
-    db.query("UPDATE users SET is_active = 0 WHERE id = ?", [id], (err2) => {
-      if (err2) return res.status(500).json(err2);
-      
-      // 🔥 LOG AKTIVITAS
-      logActivity(req.user.id, "HAPUS", "USER", `Menghapus user ID: ${id}`, { req });
-      
-      res.json({ message: "User berhasil dihapus" });
+    // Cek apakah user memiliki pengajuan aktif
+    db.query("SELECT COUNT(*) as total FROM pengajuan WHERE user_id = ?", [id], (err, result) => {
+      if (err) return res.status(500).json(err);
+
+      if (result[0].total > 0) {
+        return res.status(400).json({
+          message: "User tidak bisa dihapus karena memiliki riwayat pengajuan. Hubungi database admin."
+        });
+      }
+
+      db.query("UPDATE users SET is_active = 0 WHERE id = ?", [id], (err2) => {
+        if (err2) return res.status(500).json(err2);
+        
+        // 🔥 LOG AKTIVITAS
+        logActivity(req.user.id, "HAPUS", "USER", `Menghapus user ID: ${id}`, { req });
+        
+        res.json({ message: "User berhasil dihapus" });
+      });
     });
   });
 };

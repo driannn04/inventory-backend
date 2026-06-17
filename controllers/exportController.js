@@ -20,16 +20,26 @@ const ORG = {
 };
 
 // HELPER: DRAW PDF HEADER
-const drawPDFHeader = (doc, title, period = "") => {
-  doc.fontSize(14).font("Helvetica-Bold").text(ORG.name, { align: "center" });
-  doc.fontSize(8).font("Helvetica").text(ORG.address, { align: "center" });
-  doc.text(`Telp: ${ORG.phone} | Email: ${ORG.email}`, { align: "center" });
-  doc.moveDown(1);
-  doc.strokeColor("#000000").lineWidth(1).moveTo(40, doc.y).lineTo(560, doc.y).stroke();
+const drawPDFHeader = (doc, title, period = "", bagian = "Semua Bagian") => {
   doc.moveDown(1.5);
-  doc.fontSize(12).font("Helvetica-Bold").text(title, { align: "center", underline: true });
-  if (period) doc.fontSize(9).font("Helvetica").text(`Periode: ${period}`, { align: "center" });
-  doc.moveDown(2);
+  const startX = 40;
+  const currentY = doc.y;
+  
+  doc.fontSize(9).font("Helvetica-Bold");
+  doc.text("Periode Tanggal Laporan", startX, currentY);
+  doc.text(":", startX + 130, currentY);
+  doc.font("Helvetica").text(period || "-", startX + 140, currentY);
+  
+  doc.font("Helvetica-Bold").text("Tanggal Cetak", startX, currentY + 15);
+  doc.text(":", startX + 130, currentY + 15);
+  const printDate = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  doc.font("Helvetica").text(printDate, startX + 140, currentY + 15);
+  
+  doc.font("Helvetica-Bold").text("Bagian", startX, currentY + 30);
+  doc.text(":", startX + 130, currentY + 30);
+  doc.font("Helvetica").text(bagian, startX + 140, currentY + 30);
+  
+  doc.moveDown(3);
 };
 
 // HELPER: DRAW SIGNATURE (2 KOLOM)
@@ -122,7 +132,7 @@ exports.exportPengajuanPDF = async (req, res) => {
       doc.font("Helvetica-Bold").text(item.pemohon, 160, startY + 5, { width: 110 });
       doc.font("Helvetica").fontSize(7).text(item.unit || '-', 160, startY + 15, { width: 110 });
       doc.fontSize(7.5).font("Helvetica").text(barangText, 280, startY + 8, { width: 180 });
-      doc.text(new Date(item.tanggal_pengajuan).toLocaleDateString("id-ID", {day:'2-digit', month:'2-digit'}), 465, startY + 8, { width: 50, align: "center" });
+      doc.text(new Date(item.tanggal_pengajuan).toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit' }), 465, startY + 8, { width: 50, align: "center" });
       doc.font("Helvetica-Bold").text(item.status.toUpperCase(), 515, startY + 8, { width: 45, align: "center" });
       doc.y = startY + rowHeight;
     });
@@ -135,59 +145,116 @@ exports.exportPengajuanPDF = async (req, res) => {
 // ==========================================
 // EXPORT BARANG KELUAR (PDF)
 // ==========================================
-exports.exportBarangKeluarPDF = async (req, res) => {
+exports.exportBarangKeluarPDF = (req, res) => {
   const { start, end } = req.query;
-  const { role, id_dept, id_subdept } = req.user;
+  const { role, id_dept, id_subdept, id: userId } = req.user;
 
-  let sql = `
-    SELECT b.nama_barang, sk.jumlah, b.satuan, sk.tanggal, u.nama as pemohon, sd.nama_sub as unit
-    FROM stok_keluar sk
-    JOIN barang b ON sk.barang_id = b.id
-    LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
-    LEFT JOIN users u ON p.user_id = u.id
+  const userSql = `
+    SELECT r.nama_role, d.nama_dept, sd.nama_sub
+    FROM users u
+    JOIN roles r ON u.role_id = r.id
+    LEFT JOIN departments d ON u.id_dept = d.id
     LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
-    WHERE DATE(sk.tanggal) BETWEEN ? AND ?
+    WHERE u.id = ?
   `;
-  const params = [start, end];
-  if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
-  else if (role === "asisten_manager") { sql += " AND u.id_subdept = ?"; params.push(id_subdept); }
-  sql += " ORDER BY sk.tanggal DESC";
 
-  db.query(sql, params, (err, rows) => {
-    if (err) return res.status(500).json(err);
-    const doc = new PDFDocument({ margin: 40 });
-    res.setHeader("Content-Disposition", "attachment; filename=laporan_barang_keluar.pdf");
-    doc.pipe(res);
-    drawPDFHeader(doc, "LAPORAN PENGELUARAN BARANG", `${start} - ${end}`);
+  db.query(userSql, [userId], (userErr, userRows) => {
+    let bagian = "Semua Bagian";
+    if (!userErr && userRows && userRows.length > 0) {
+      const user = userRows[0];
+      if (user.nama_role === "asisten_manager") {
+        bagian = user.nama_sub || "Semua Bagian";
+      } else if (user.nama_role === "manager") {
+        bagian = user.nama_dept || "Semua Bagian";
+      }
+    }
+
+    let sql = `
+      SELECT b.kode_barang, b.nama_barang, sk.jumlah, b.satuan, sk.tanggal, u.nama as pemohon, sd.nama_sub as unit
+      FROM stok_keluar sk
+      JOIN barang b ON sk.barang_id = b.id
+      LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
+      LEFT JOIN users u ON p.user_id = u.id
+      LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+      WHERE DATE(sk.tanggal) BETWEEN ? AND ?
+    `;
+    const params = [start, end];
+    if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
+    else if (role === "asisten_manager") { sql += " AND u.id_subdept = ?"; params.push(id_subdept); }
+    sql += " ORDER BY sk.tanggal DESC";
+
+    db.query(sql, params, (err, rows) => {
+      if (err) return res.status(500).json(err);
+      
+      // Group by Date
+      const grouped = rows.reduce((acc, row) => {
+        const dateKey = new Date(row.tanggal).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+        if (!acc[dateKey]) acc[dateKey] = [];
+        acc[dateKey].push(row);
+        return acc;
+      }, {});
+
+      const doc = new PDFDocument({ margin: 40 });
+      res.setHeader("Content-Disposition", "attachment; filename=laporan_barang_keluar.pdf");
+      doc.pipe(res);
+      
+      let periodStr = "-";
+      if(start && end) {
+         periodStr = `${new Date(start).toLocaleDateString('id-ID')} s/d ${new Date(end).toLocaleDateString('id-ID')}`;
+      }
+      
+      drawPDFHeader(doc, "LAPORAN PENGELUARAN BARANG", periodStr, bagian);
 
     const drawTableHeader = (yPos) => {
       doc.strokeColor("#000000").lineWidth(0.7).rect(40, yPos, 520, 20).stroke();
-      [70, 250, 400, 480].forEach(x => doc.moveTo(x, yPos).lineTo(x, yPos + 20).stroke());
+      // NO(30), KODE(110), NAMA(140), SATUAN(60), JUMLAH(60), PENERIMA(120)
+      [70, 180, 320, 380, 440].forEach(x => doc.moveTo(x, yPos).lineTo(x, yPos + 20).stroke());
       doc.fontSize(8).font("Helvetica-Bold").text("NO", 40, yPos + 6, { width: 30, align: "center" });
-      doc.text("NAMA BARANG", 70, yPos + 6, { width: 180, align: "center" });
-      doc.text("PENERIMA / UNIT", 250, yPos + 6, { width: 150, align: "center" });
-      doc.text("JUMLAH", 400, yPos + 6, { width: 80, align: "center" });
-      doc.text("TANGGAL", 480, yPos + 6, { width: 80, align: "center" });
+      doc.text("KODE BARANG", 70, yPos + 6, { width: 110, align: "center" });
+      doc.text("NAMA BARANG", 180, yPos + 6, { width: 140, align: "center" });
+      doc.text("SATUAN", 320, yPos + 6, { width: 60, align: "center" });
+      doc.text("JUMLAH", 380, yPos + 6, { width: 60, align: "center" });
+      doc.text("PENERIMA / UNIT", 440, yPos + 6, { width: 80, align: "center" });
       doc.y = yPos + 20;
     };
 
     drawTableHeader(doc.y);
-    rows.forEach((item, index) => {
-      const rowHeight = 25;
-      if (doc.y + rowHeight > 700) { doc.addPage(); drawPDFHeader(doc, "LAPORAN PENGELUARAN BARANG", ""); drawTableHeader(doc.y); }
-      const startY = doc.y;
+    
+    let groupIndex = 1;
+    for (const [dateText, items] of Object.entries(grouped)) {
+      const rowHeight = 20;
+      if (doc.y + rowHeight > 700) { doc.addPage(); drawPDFHeader(doc, "LAPORAN PENGELUARAN BARANG", periodStr, bagian); drawTableHeader(doc.y); }
+      let startY = doc.y;
       doc.strokeColor("#000000").lineWidth(0.5).rect(40, startY, 520, rowHeight).stroke();
-      [70, 250, 400, 480].forEach(x => doc.moveTo(x, startY).lineTo(x, startY + rowHeight).stroke());
-      doc.fontSize(8).font("Helvetica").text(index + 1, 40, startY + 8, { width: 30, align: "center" });
-      doc.text(item.nama_barang, 75, startY + 8, { width: 170 });
-      doc.text(`${item.pemohon || "-"} / ${item.unit || "-"}`, 255, startY + 8, { width: 140 });
-      doc.text(`${item.jumlah} ${item.satuan}`, 400, startY + 8, { width: 80, align: "center" });
-      doc.text(new Date(item.tanggal).toLocaleDateString("id-ID"), 480, startY + 8, { width: 80, align: "center" });
+      doc.moveTo(70, startY).lineTo(70, startY + rowHeight).stroke();
+      
+      doc.fontSize(8).font("Helvetica-Bold").text(groupIndex, 40, startY + 6, { width: 30, align: "center" });
+      doc.text(`Tanggal ${dateText}`, 75, startY + 6, { width: 440 });
       doc.y = startY + rowHeight;
-    });
-    drawPDFSignature(doc);
+      groupIndex++;
+      
+      items.forEach((item) => {
+         const infoText = `${item.pemohon || "-"} / ${item.unit || "-"}`;
+         const textHeight = Math.max(doc.heightOfString(item.nama_barang, { width: 140 }), doc.heightOfString(infoText, { width: 80 }));
+         const itemRowHeight = Math.max(textHeight + 10, 20);
+         
+         if (doc.y + itemRowHeight > 700) { doc.addPage(); drawPDFHeader(doc, "LAPORAN PENGELUARAN BARANG", periodStr, bagian); drawTableHeader(doc.y); }
+         let iY = doc.y;
+         doc.strokeColor("#000000").lineWidth(0.5).rect(40, iY, 520, itemRowHeight).stroke();
+         [70, 180, 320, 380, 440].forEach(x => doc.moveTo(x, iY).lineTo(x, iY + itemRowHeight).stroke());
+         
+         doc.fontSize(8).font("Helvetica").text(item.kode_barang || "-", 75, iY + 6, { width: 100 });
+         doc.text(item.nama_barang, 185, iY + 6, { width: 130 });
+         doc.text(item.satuan, 320, iY + 6, { width: 60, align: "center" });
+         doc.text(item.jumlah, 380, iY + 6, { width: 60, align: "center" });
+         doc.text(infoText, 445, iY + 6, { width: 70 });
+         
+         doc.y = iY + itemRowHeight;
+      });
+    }
     doc.end();
     logActivity(req.user.id, "EXPORT", "STOK KELUAR", `Mengekspor riwayat pengeluaran ke PDF`, { req });
+  });
   });
 };
 
@@ -195,13 +262,35 @@ exports.exportBarangKeluarPDF = async (req, res) => {
 // EXPORT STOK (PDF)
 // ==========================================
 exports.exportStokPDF = (req, res) => {
-  const sql = "SELECT kode_barang, nama_barang, satuan, stok FROM barang WHERE is_deleted = 0 ORDER BY nama_barang ASC";
-  db.query(sql, (err, rows) => {
-    if (err) return res.status(500).json(err);
-    const doc = new PDFDocument({ margin: 40 });
-    res.setHeader("Content-Disposition", "attachment; filename=laporan_stok.pdf");
-    doc.pipe(res);
-    drawPDFHeader(doc, "LAPORAN STOK BARANG GUDANG");
+  const { id: userId } = req.user;
+
+  const userSql = `
+    SELECT r.nama_role, d.nama_dept, sd.nama_sub
+    FROM users u
+    JOIN roles r ON u.role_id = r.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    WHERE u.id = ?
+  `;
+
+  db.query(userSql, [userId], (userErr, userRows) => {
+    let bagian = "Semua Bagian";
+    if (!userErr && userRows && userRows.length > 0) {
+      const user = userRows[0];
+      if (user.nama_role === "asisten_manager") {
+        bagian = user.nama_sub || "Semua Bagian";
+      } else if (user.nama_role === "manager") {
+        bagian = user.nama_dept || "Semua Bagian";
+      }
+    }
+
+    const sql = "SELECT kode_barang, nama_barang, satuan, stok FROM barang WHERE is_deleted = 0 ORDER BY nama_barang ASC";
+    db.query(sql, (err, rows) => {
+      if (err) return res.status(500).json(err);
+      const doc = new PDFDocument({ margin: 40 });
+      res.setHeader("Content-Disposition", "attachment; filename=laporan_stok.pdf");
+      doc.pipe(res);
+      drawPDFHeader(doc, "LAPORAN STOK BARANG GUDANG", "", bagian);
 
     const drawTableHeader = (yPos) => {
       doc.strokeColor("#000000").lineWidth(0.7).rect(40, yPos, 520, 20).stroke();
@@ -228,9 +317,9 @@ exports.exportStokPDF = (req, res) => {
       doc.font("Helvetica").text(item.satuan, 500, startY + 6, { width: 60, align: "center" });
       doc.y = startY + rowHeight;
     });
-    drawPDFSignature(doc);
     doc.end();
     logActivity(req.user.id, "EXPORT", "STOK", `Mengekspor laporan stok ke PDF`, { req });
+  });
   });
 };
 
@@ -239,42 +328,100 @@ exports.exportStokPDF = (req, res) => {
 // ==========================================
 exports.exportBarangMasukPDF = (req, res) => {
   const { start, end } = req.query;
-  const sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE DATE(sm.tanggal) BETWEEN ? AND ? ORDER BY sm.tanggal DESC`;
-  db.query(sql, [start, end], (err, rows) => {
-    if (err) return res.status(500).json(err);
-    const doc = new PDFDocument({ margin: 40 });
-    res.setHeader("Content-Disposition", "attachment; filename=laporan_barang_masuk.pdf");
-    doc.pipe(res);
-    drawPDFHeader(doc, "LAPORAN PENERIMAAN BARANG (MASUK)", `${start} - ${end}`);
+  const { id: userId } = req.user;
+
+  const userSql = `
+    SELECT r.nama_role, d.nama_dept, sd.nama_sub
+    FROM users u
+    JOIN roles r ON u.role_id = r.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    WHERE u.id = ?
+  `;
+
+  db.query(userSql, [userId], (userErr, userRows) => {
+    let bagian = "Semua Bagian";
+    if (!userErr && userRows && userRows.length > 0) {
+      const user = userRows[0];
+      if (user.nama_role === "asisten_manager") {
+        bagian = user.nama_sub || "Semua Bagian";
+      } else if (user.nama_role === "manager") {
+        bagian = user.nama_dept || "Semua Bagian";
+      }
+    }
+
+    const sql = `SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE DATE(sm.tanggal) BETWEEN ? AND ? ORDER BY sm.tanggal DESC`;
+    db.query(sql, [start, end], (err, rows) => {
+      if (err) return res.status(500).json(err);
+      
+      // Group by Date
+      const grouped = rows.reduce((acc, row) => {
+        const dateKey = new Date(row.tanggal).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+        if (!acc[dateKey]) acc[dateKey] = [];
+        acc[dateKey].push(row);
+        return acc;
+      }, {});
+
+      const doc = new PDFDocument({ margin: 40 });
+      res.setHeader("Content-Disposition", "attachment; filename=laporan_barang_masuk.pdf");
+      doc.pipe(res);
+      
+      let periodStr = "-";
+      if(start && end) {
+         periodStr = `${new Date(start).toLocaleDateString('id-ID')} s/d ${new Date(end).toLocaleDateString('id-ID')}`;
+      }
+      
+      drawPDFHeader(doc, "LAPORAN PENERIMAAN BARANG (MASUK)", periodStr, bagian);
 
     const drawTableHeader = (yPos) => {
       doc.strokeColor("#000000").lineWidth(0.7).rect(40, yPos, 520, 20).stroke();
-      [70, 250, 330, 410].forEach(x => doc.moveTo(x, yPos).lineTo(x, yPos + 20).stroke());
+      // NO(30), KODE(110), NAMA(140), SATUAN(60), JUMLAH(60), KETERANGAN(120)
+      [70, 180, 320, 380, 440].forEach(x => doc.moveTo(x, yPos).lineTo(x, yPos + 20).stroke());
       doc.fontSize(8).font("Helvetica-Bold").text("NO", 40, yPos + 6, { width: 30, align: "center" });
-      doc.text("NAMA BARANG", 70, yPos + 6, { width: 180, align: "center" });
-      doc.text("JUMLAH", 250, yPos + 6, { width: 80, align: "center" });
-      doc.text("TGL", 330, yPos + 6, { width: 80, align: "center" });
-      doc.text("KETERANGAN", 410, yPos + 6, { width: 150, align: "center" });
+      doc.text("KODE BARANG", 70, yPos + 6, { width: 110, align: "center" });
+      doc.text("NAMA BARANG", 180, yPos + 6, { width: 140, align: "center" });
+      doc.text("SATUAN", 320, yPos + 6, { width: 60, align: "center" });
+      doc.text("JUMLAH", 380, yPos + 6, { width: 60, align: "center" });
+      doc.text("KETERANGAN", 440, yPos + 6, { width: 90, align: "center" });
       doc.y = yPos + 20;
     };
 
     drawTableHeader(doc.y);
-    rows.forEach((item, index) => {
-      const rowHeight = 25;
-      if (doc.y + rowHeight > 700) { doc.addPage(); drawPDFHeader(doc, "LAPORAN PENERIMAAN BARANG (MASUK)", ""); drawTableHeader(doc.y); }
-      const startY = doc.y;
+    
+    let groupIndex = 1;
+    for (const [dateText, items] of Object.entries(grouped)) {
+      const rowHeight = 20;
+      if (doc.y + rowHeight > 700) { doc.addPage(); drawPDFHeader(doc, "LAPORAN PENERIMAAN BARANG (MASUK)", periodStr, bagian); drawTableHeader(doc.y); }
+      let startY = doc.y;
       doc.strokeColor("#000000").lineWidth(0.5).rect(40, startY, 520, rowHeight).stroke();
-      [70, 250, 330, 410].forEach(x => doc.moveTo(x, startY).lineTo(x, startY + rowHeight).stroke());
-      doc.fontSize(8).font("Helvetica").text(index + 1, 40, startY + 8, { width: 30, align: "center" });
-      doc.text(item.nama_barang, 75, startY + 8, { width: 170 });
-      doc.text(`${item.jumlah} ${item.satuan}`, 250, startY + 8, { width: 80, align: "center" });
-      doc.text(new Date(item.tanggal).toLocaleDateString("id-ID"), 330, startY + 8, { width: 80, align: "center" });
-      doc.text(item.keterangan || "-", 415, startY + 8, { width: 140 });
+      doc.moveTo(70, startY).lineTo(70, startY + rowHeight).stroke();
+      
+      doc.fontSize(8).font("Helvetica-Bold").text(groupIndex, 40, startY + 6, { width: 30, align: "center" });
+      doc.text(`Tanggal ${dateText}`, 75, startY + 6, { width: 440 });
       doc.y = startY + rowHeight;
-    });
-    drawPDFSignature(doc);
+      groupIndex++;
+      
+      items.forEach((item) => {
+         const textHeight = Math.max(doc.heightOfString(item.nama_barang, { width: 140 }), doc.heightOfString(item.keterangan || "-", { width: 80 }));
+         const itemRowHeight = Math.max(textHeight + 10, 20);
+         
+         if (doc.y + itemRowHeight > 700) { doc.addPage(); drawPDFHeader(doc, "LAPORAN PENERIMAAN BARANG (MASUK)", periodStr, bagian); drawTableHeader(doc.y); }
+         let iY = doc.y;
+         doc.strokeColor("#000000").lineWidth(0.5).rect(40, iY, 520, itemRowHeight).stroke();
+         [70, 180, 320, 380, 440].forEach(x => doc.moveTo(x, iY).lineTo(x, iY + itemRowHeight).stroke());
+         
+         doc.fontSize(8).font("Helvetica").text(item.kode_barang || "-", 75, iY + 6, { width: 100 });
+         doc.text(item.nama_barang, 185, iY + 6, { width: 130 });
+         doc.text(item.satuan, 320, iY + 6, { width: 60, align: "center" });
+         doc.text(item.jumlah, 380, iY + 6, { width: 60, align: "center" });
+         doc.text(item.keterangan || "-", 445, iY + 6, { width: 70 });
+         
+         doc.y = iY + itemRowHeight;
+      });
+    }
     doc.end();
     logActivity(req.user.id, "EXPORT", "STOK MASUK", `Mengekspor riwayat penerimaan ke PDF`, { req });
+  });
   });
 };
 
@@ -302,10 +449,10 @@ exports.exportBarangKeluarExcel = async (req, res) => {
 
   db.query(sql, params, async (err, rows) => {
     if (err) return res.status(500).json(err);
-    
+
     const workbook = new excel.Workbook();
     const sheet = workbook.addWorksheet("Barang Keluar");
-    
+
     sheet.columns = [
       { header: "No", key: "no", width: 5 },
       { header: "Nama Barang", key: "nama_barang", width: 30 },
@@ -339,7 +486,7 @@ exports.exportBarangKeluarExcel = async (req, res) => {
 exports.exportBarangMasukExcel = async (req, res) => {
   const { start, end } = req.query;
   const sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE DATE(sm.tanggal) BETWEEN ? AND ? ORDER BY sm.tanggal DESC`;
-  
+
   db.query(sql, [start, end], async (err, rows) => {
     if (err) return res.status(500).json(err);
     const workbook = new excel.Workbook();
@@ -419,14 +566,14 @@ exports.exportPengajuanExcel = async (req, res) => {
       { header: "Status", key: "status", width: 15 }
     ];
     rows.forEach(r => {
-      sheet.addRow({ 
-        nomor: r.nomor_pengajuan, 
-        tanggal: new Date(r.tanggal_pengajuan).toLocaleDateString("id-ID"), 
-        pemohon: r.pemohon, 
-        unit: r.unit || "-", 
-        barang: r.nama_barang, 
-        jumlah: `${r.jumlah} ${r.satuan}`, 
-        status: r.status 
+      sheet.addRow({
+        nomor: r.nomor_pengajuan,
+        tanggal: new Date(r.tanggal_pengajuan).toLocaleDateString("id-ID"),
+        pemohon: r.pemohon,
+        unit: r.unit || "-",
+        barang: r.nama_barang,
+        jumlah: `${r.jumlah} ${r.satuan}`,
+        status: r.status
       });
     });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

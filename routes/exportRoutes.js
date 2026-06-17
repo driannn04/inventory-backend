@@ -17,8 +17,6 @@ router.get("/pdf/barang-masuk", verifyToken, allowRoles("admin", "gudang"), expo
 router.get("/excel/stok", verifyToken, allowRoles("admin", "gudang", "manager", "asisten_manager"), exportController.exportStokExcel);
 router.get("/pdf/stok", verifyToken, allowRoles("admin", "gudang", "manager", "asisten_manager"), exportController.exportStokPDF);
 
-// RIWAYAT PENGAJUAN
-router.get("/excel/pengajuan", verifyToken, allowRoles("admin", "gudang", "manager", "asisten_manager"), exportController.exportPengajuanExcel);
-router.get("/pdf/pengajuan", verifyToken, allowRoles("admin", "gudang", "manager", "asisten_manager"), exportController.exportPengajuanPDF);
+// RIWAYAT PENGAJUAN (Dihapus sesuai permintaan)
 
 module.exports = router;

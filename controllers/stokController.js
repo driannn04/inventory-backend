@@ -51,52 +51,7 @@ exports.tambahStokMasuk = (req, res) => {
 // STOK KELUAR (MANUAL)
 // =============================
 exports.tambahStokKeluar = (req, res) => {
-  let { barang_id, jumlah, keterangan } = req.body;
-  barang_id = parseInt(barang_id);
-  jumlah = parseInt(jumlah);
-
-  if (!barang_id || !jumlah || jumlah <= 0) return res.status(400).json({ message: "Data tidak valid" });
-
-  db.getConnection((err, conn) => {
-    if (err) return res.status(500).json(err);
-
-    conn.beginTransaction((err) => {
-      if (err) { conn.release(); return res.status(500).json(err); }
-
-      conn.query("SELECT stok, nama_barang, kode_barang, satuan, stok_minimum FROM barang WHERE id = ? FOR UPDATE", [barang_id], (err, rows) => {
-        if (err || rows.length === 0) return conn.rollback(() => { conn.release(); res.status(404).json({ message: "Barang tidak ditemukan" }); });
-        
-        const b = rows[0];
-        if (b.stok < jumlah) return conn.rollback(() => { conn.release(); res.status(400).json({ message: "Stok tidak mencukupi" }); });
-
-        conn.query("INSERT INTO stok_keluar (barang_id, jumlah, tanggal, keterangan) VALUES (?,?,NOW(),?)", [barang_id, jumlah, keterangan], (err) => {
-          if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-
-          conn.query("UPDATE barang SET stok = stok - ? WHERE id = ?", [jumlah, barang_id], (err) => {
-            if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-
-            conn.commit((err) => {
-              if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-              conn.release();
-
-              // 🔥 LOG, NOTIF & MINIMUM CHECK
-              if (b.stok - jumlah <= b.stok_minimum) {
-                kirimNotifikasiByRole("admin", "⚠️ Perhatian: Stok Menipis", `Barang ${b.nama_barang} kini tersisa ${b.stok - jumlah}. Segera lakukan pengadaan.`, "danger");
-              }
-
-              const msg = `Pengeluaran barang [${b.kode_barang}] ${b.nama_barang} sebanyak ${jumlah} ${b.satuan}. Ket: ${keterangan || '-'}`;
-              logActivity(req.user.id, "KELUAR", "STOK KELUAR", msg, { req });
-              
-              kirimNotifikasiByRole("admin", "Pengeluaran Barang", msg, "warning");
-              kirimNotifikasiByRole("gudang", "Pengeluaran Barang", msg, "warning");
-
-              res.json({ message: "Stok berhasil dikurangi" });
-            });
-          });
-        });
-      });
-    });
-  });
+  return res.status(403).json({ message: "Pengurangan stok hanya dapat dilakukan melalui persetujuan Pengajuan (Request) oleh pihak Pergudangan." });
 };
 
 // =============================

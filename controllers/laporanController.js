@@ -13,7 +13,7 @@ exports.laporanStok = (req, res) => {
 exports.laporanBarangMasuk = (req, res) => {
   const { start, end } = req.query;
   const sql = `
-    SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan
+    SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan
     FROM stok_masuk sm
     JOIN barang b ON sm.barang_id = b.id
     WHERE DATE(sm.tanggal) BETWEEN ? AND ?
@@ -31,7 +31,7 @@ exports.laporanBarangKeluar = (req, res) => {
   const { role, id_dept, id_subdept } = req.user;
 
   let sql = `
-    SELECT b.nama_barang, sk.jumlah, b.satuan, sk.tanggal, u.nama as pemohon, 
+    SELECT b.kode_barang, b.nama_barang, sk.jumlah, b.satuan, sk.tanggal, u.nama as pemohon, 
            sd.nama_sub as unit, d.nama_dept as divisi
     FROM stok_keluar sk
     JOIN barang b ON sk.barang_id = b.id

@@ -630,7 +630,9 @@ exports.downloadQR = (req, res) => {
 // SCAN QR
 // =============================
 exports.scanQR = (req, res) => {
+
   try {
+
     let { kode_barang } = req.body;
 
     if (!kode_barang) {
@@ -639,13 +641,12 @@ exports.scanQR = (req, res) => {
       });
     }
 
+    // 🔥 PENTING: Hapus spasi tambahan jika ada
     kode_barang = kode_barang.trim();
 
     console.log("SCAN MASUK:", kode_barang);
 
-    const sql = `
-  SELECT * FROM barang WHERE kode_barang = ? AND is_deleted = 0
-`;
+    const sql = "SELECT * FROM barang WHERE kode_barang = ? AND is_deleted = 0";
 
     db.query(sql, [kode_barang], (err, result) => {
 
@@ -669,10 +670,9 @@ exports.scanQR = (req, res) => {
   } catch (err) {
     res.status(500).json(err);
   }
+
 };
 
-// =============================
-// LACAK ANTREAN ORDER (PENDING)
 // =============================
 exports.getPendingOrdersByBarang = (req, res) => {
   const barangId = req.params.id;
