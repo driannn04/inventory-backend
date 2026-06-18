@@ -1,5 +1,6 @@
 const db = require("../config/db");
-const XLSX = require("xlsx");
+const excel = require("exceljs");
+const { styleExcelSheet } = require("../utils/excelHelper");
 const { logActivity } = require("../utils/activityLogger");
 
 // 1. GET LOGS (List for UI)
@@ -37,25 +38,42 @@ exports.exportLogs = (req, res) => {
     ORDER BY al.created_at DESC
   `;
 
-  db.query(sql, (err, result) => {
+  db.query(sql, async (err, result) => {
     if (err) return res.status(500).json(err);
 
-    // Format data untuk Excel
-    const data = result.map(item => ({
-      ...item,
-      Waktu: new Date(item.Waktu).toLocaleString("id-ID")
-    }));
+    const workbook = new excel.Workbook();
+    const sheet = workbook.addWorksheet("Activity Logs");
+    sheet.columns = [
+      { header: "No", key: "no", width: 5 },
+      { header: "Waktu", key: "waktu", width: 22 },
+      { header: "Pengguna", key: "pengguna", width: 25 },
+      { header: "Role", key: "role", width: 15 },
+      { header: "IP Address", key: "ip", width: 15 },
+      { header: "Modul", key: "modul", width: 15 },
+      { header: "Aksi", key: "aksi", width: 12 },
+      { header: "Keterangan", key: "keterangan", width: 45 }
+    ];
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Activity Logs");
+    result.forEach((r, i) => {
+      sheet.addRow({
+        no: i + 1,
+        waktu: new Date(r.Waktu).toLocaleString("id-ID"),
+        pengguna: r.Pengguna,
+        role: r.Role,
+        ip: r.IP,
+        modul: r.Modul,
+        aksi: r.Aksi,
+        keterangan: r.Keterangan
+      });
+    });
 
-    // Generate buffer
-    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    styleExcelSheet(sheet, "LAPORAN LOG AKTIVITAS SISTEM", "Semua Waktu", 8);
 
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=Audit_Log_Inventory.xlsx");
-    res.send(buffer);
+    res.setHeader("Content-Disposition", `attachment; filename=Audit_Log_Inventory_${timestamp}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
 
     // 🔥 LOG EXPORT
     logActivity(req.user.id, "EXPORT", "AUDIT LOG", `Mengekspor audit log ke Excel`, { req });

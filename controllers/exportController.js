@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const PDFDocument = require("pdfkit");
 const excel = require("exceljs");
+const { styleExcelSheet } = require("../utils/excelHelper");
 const { logActivity } = require("../utils/activityLogger");
 
 const ORG = {
@@ -475,8 +476,12 @@ exports.exportBarangKeluarExcel = async (req, res) => {
       });
     });
 
+    let periodStr = start && end ? `${new Date(start).toLocaleDateString('id-ID')} s/d ${new Date(end).toLocaleDateString('id-ID')}` : "Semua Waktu";
+    styleExcelSheet(sheet, "LAPORAN BARANG KELUAR", periodStr, 7);
+
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=barang_keluar.xlsx");
+    res.setHeader("Content-Disposition", `attachment; filename=barang_keluar_${timestamp}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
     logActivity(req.user.id, "EXPORT", "STOK KELUAR", `Mengekspor riwayat pengeluaran ke Excel`, { req });
@@ -502,8 +507,13 @@ exports.exportBarangMasukExcel = async (req, res) => {
     rows.forEach((r, i) => {
       sheet.addRow({ no: i + 1, nama_barang: r.nama_barang, jumlah: r.jumlah, satuan: r.satuan, tanggal: new Date(r.tanggal).toLocaleDateString("id-ID"), keterangan: r.keterangan || "-" });
     });
+
+    let periodStr = start && end ? `${new Date(start).toLocaleDateString('id-ID')} s/d ${new Date(end).toLocaleDateString('id-ID')}` : "Semua Waktu";
+    styleExcelSheet(sheet, "LAPORAN BARANG MASUK", periodStr, 6);
+
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=barang_masuk.xlsx");
+    res.setHeader("Content-Disposition", `attachment; filename=barang_masuk_${timestamp}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
     logActivity(req.user.id, "EXPORT", "STOK MASUK", `Mengekspor riwayat penerimaan ke Excel`, { req });
@@ -526,8 +536,12 @@ exports.exportStokExcel = async (req, res) => {
     rows.forEach((r, i) => {
       sheet.addRow({ no: i + 1, kode: r.kode_barang, nama_barang: r.nama_barang, stok: r.stok, satuan: r.satuan });
     });
+
+    styleExcelSheet(sheet, "LAPORAN STOK BARANG SAAT INI", "Data Realtime", 5);
+
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=stok_barang.xlsx");
+    res.setHeader("Content-Disposition", `attachment; filename=stok_barang_${timestamp}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
     logActivity(req.user.id, "EXPORT", "STOK", `Mengekspor laporan stok ke Excel`, { req });
@@ -576,8 +590,13 @@ exports.exportPengajuanExcel = async (req, res) => {
         status: r.status
       });
     });
+
+    let periodStr = start && end ? `${new Date(start).toLocaleDateString('id-ID')} s/d ${new Date(end).toLocaleDateString('id-ID')}` : "Semua Waktu";
+    styleExcelSheet(sheet, "LAPORAN RIWAYAT PENGAJUAN BARANG", periodStr, 7);
+
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=riwayat_pengajuan.xlsx");
+    res.setHeader("Content-Disposition", `attachment; filename=riwayat_pengajuan_${timestamp}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
     logActivity(req.user.id, "EXPORT", "PENGAJUAN", `Mengekspor riwayat pengajuan ke Excel`, { req });
