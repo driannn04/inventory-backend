@@ -244,7 +244,34 @@ exports.resetPassword = (req, res) => {
 exports.getRoles = (req, res) => {
   db.query("SELECT * FROM roles ORDER BY id", (err, result) => {
     if (err) return res.status(500).json(err);
-    res.json(result);
+    const parsed = result.map(r => {
+      try {
+        r.permissions = r.permissions ? JSON.parse(r.permissions) : [];
+      } catch (e) {
+        r.permissions = [];
+      }
+      return r;
+    });
+    res.json(parsed);
+  });
+};
+
+// =============================
+// 7.1 UPDATE ROLE PERMISSIONS
+// =============================
+exports.updateRolePermissions = (req, res) => {
+  const { id } = req.params;
+  const { permissions } = req.body;
+
+  if (!Array.isArray(permissions)) {
+    return res.status(400).json({ message: "Permissions harus berupa Array" });
+  }
+
+  const permissionsJson = JSON.stringify(permissions);
+
+  db.query("UPDATE roles SET permissions = ? WHERE id = ?", [permissionsJson, id], (err) => {
+    if (err) return res.status(500).json(err);
+    res.json({ message: "Hak akses role berhasil diupdate" });
   });
 };
 
@@ -257,7 +284,7 @@ exports.getMyProfile = (req, res) => {
   const sql = `
     SELECT u.id, u.nup, u.nama, u.email, u.no_telp, u.avatar, u.created_at,
            u.jabatan_id, u.id_dept, u.id_subdept,
-           r.nama_role as role,
+           r.nama_role as role, r.permissions,
            j.nama_jabatan as jabatan,
            d.nama_dept as departemen,
            sd.nama_sub as sub_departemen
@@ -272,7 +299,13 @@ exports.getMyProfile = (req, res) => {
   db.query(sql, [userId], (err, result) => {
     if (err) return res.status(500).json(err);
     if (result.length === 0) return res.status(404).json({ message: "User tidak ditemukan" });
-    res.json(result[0]);
+    const user = result[0];
+    try {
+      user.permissions = user.permissions ? JSON.parse(user.permissions) : [];
+    } catch (e) {
+      user.permissions = [];
+    }
+    res.json(user);
   });
 };
 

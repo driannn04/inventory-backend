@@ -23,10 +23,9 @@ const activityLogger = (aksiCustom, tipeData) => {
           }
 
           const keterangan = `User melakukan ${aksi} pada ${tipeData || 'Data'}. ${data.message || ""}`;
-          const target_id = req.params.id || data.id || null;
 
-          const sql = "INSERT INTO activity_logs (user_id, aksi, tipe_data, target_id, keterangan) VALUES (?, ?, ?, ?, ?)";
-          db.query(sql, [user_id, aksi, tipeData || 'Umum', target_id, keterangan], (err) => {
+          const sql = "INSERT INTO activity_logs (user_id, aksi, tipe_data, keterangan) VALUES (?, ?, ?, ?)";
+          db.query(sql, [user_id, aksi, tipeData || 'Umum', keterangan], (err) => {
             if (err) console.error("❌ Gagal mencatat log aktivitas:", err.message);
           });
         }

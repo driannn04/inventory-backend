@@ -10,7 +10,7 @@ exports.login = (req, res) => {
   const { nup, password } = req.body;
 
   const sql = `
-    SELECT u.*, r.nama_role,
+    SELECT u.*, r.nama_role, r.permissions,
            j.nama_jabatan,
            d.nama_dept,
            sd.nama_sub
@@ -49,6 +49,13 @@ exports.login = (req, res) => {
     // 🔥 CATAT LOG LOGIN (Sekarang dengan IP & Device info)
     logActivity(user.id, "LOGIN", "SISTEM", "User berhasil masuk ke dalam sistem", { req });
 
+    let permissions = [];
+    try {
+      permissions = user.permissions ? JSON.parse(user.permissions) : [];
+    } catch (e) {
+      permissions = [];
+    }
+
     res.json({
       message: "Login berhasil",
       token: token,
@@ -57,6 +64,7 @@ exports.login = (req, res) => {
         nama: user.nama,
         nup: user.nup,
         role: user.nama_role,
+        permissions: permissions,
         jabatan: user.nama_jabatan,
         departemen: user.nama_dept,
         sub_departemen: user.nama_sub,
