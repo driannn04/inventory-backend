@@ -5,14 +5,13 @@ const { logActivity } = require("../utils/activityLogger");
 exports.getKategori = (req, res) => {
   const sql = `
     SELECT 
-      k.*, 
+      k.*,
       COUNT(b.id) as total_barang,
       IFNULL(SUM(b.stok), 0) as total_stok,
       COUNT(CASE WHEN b.stok <= b.stok_minimum AND b.is_deleted = 0 THEN 1 END) as stok_kritis,
       (SELECT b2.nama_barang FROM barang b2 WHERE b2.kategori_id = k.id AND b2.is_deleted = 0 ORDER BY b2.id DESC LIMIT 1) as barang_terakhir
     FROM kategori_barang k
     LEFT JOIN barang b ON k.id = b.kategori_id AND b.is_deleted = 0
-    WHERE k.is_active = 1 
     GROUP BY k.id
     ORDER BY k.id ASC
   `;
@@ -50,10 +49,10 @@ exports.createKategori = (req, res) => {
     const sql = "INSERT INTO kategori_barang (nama_kategori, deskripsi) VALUES (?, ?)";
     db.query(sql, [nama_kategori, deskripsi || null], (err2, result) => {
       if (err2) return res.status(500).json(err2);
-      
+
       // 🔥 LOG AKTIVITAS
       logActivity(req.user.id, "TAMBAH", "KATEGORI", `Menambahkan kategori baru: ${nama_kategori}`, { req, dataBaru: req.body });
-      
+
       res.json({ message: "Kategori berhasil ditambahkan", id: result.insertId });
     });
   });
@@ -71,10 +70,10 @@ exports.updateKategori = (req, res) => {
   const sql = "UPDATE kategori_barang SET nama_kategori=?, deskripsi=? WHERE id=?";
   db.query(sql, [nama_kategori, deskripsi || null, id], (err) => {
     if (err) return res.status(500).json(err);
-    
+
     // 🔥 LOG AKTIVITAS
     logActivity(req.user.id, "EDIT", "KATEGORI", `Mengubah kategori: ${nama_kategori} (ID: ${id})`, { req, dataBaru: req.body });
-    
+
     res.json({ message: "Kategori berhasil diupdate" });
   });
 };
@@ -95,13 +94,13 @@ exports.deleteKategori = (req, res) => {
 
     db.query("SELECT nama_kategori FROM kategori_barang WHERE id = ?", [id], (errName, rows) => {
       const catName = rows?.[0]?.nama_kategori || id;
-      
-      db.query("UPDATE kategori_barang SET is_active = 0 WHERE id = ?", [id], (err2) => {
+
+      db.query("DELETE FROM kategori_barang WHERE id = ?", [id], (err2) => {
         if (err2) return res.status(500).json(err2);
-        
+
         // 🔥 LOG AKTIVITAS
         logActivity(req.user.id, "HAPUS", "KATEGORI", `Menghapus kategori: ${catName}`, { req });
-        
+
         res.json({ message: "Kategori berhasil dihapus" });
       });
     });
