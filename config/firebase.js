@@ -79,6 +79,16 @@ const sendPushNotification = async (tokens, title, body, data = {}) => {
       title: title,
       body: body,
     },
+    android: {
+      priority: "high",
+      notification: {
+        channelId: "high_importance_channel",
+        priority: "max",
+        sound: "default",
+        defaultSound: true,
+        defaultVibrateTimings: true,
+      }
+    },
     data: {
       ...stringData,
       click_action: "FLUTTER_NOTIFICATION_CLICK"
