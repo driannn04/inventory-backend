@@ -1,8 +1,10 @@
-const admin = require("firebase-admin");
+const { initializeApp, cert } = require("firebase-admin/app");
+const { getMessaging } = require("firebase-admin/messaging");
 const path = require("path");
 const fs = require("fs");
 
 let messaging = null;
+let firebaseApp = null;
 
 try {
   let serviceAccount = null;
@@ -32,10 +34,10 @@ try {
   }
 
   if (serviceAccount) {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+    firebaseApp = initializeApp({
+      credential: cert(serviceAccount)
     });
-    messaging = admin.messaging();
+    messaging = getMessaging(firebaseApp);
     console.log("🔥 Firebase Admin SDK initialized successfully");
   } else {
     console.warn("⚠️  [FCM] Firebase credentials not found. Push notifications will be disabled.");
@@ -110,7 +112,7 @@ const sendPushNotification = async (tokens, title, body, data = {}) => {
 };
 
 module.exports = {
-  admin,
+  firebaseApp,
   sendPushNotification,
   isFirebaseEnabled: () => messaging !== null
 };
