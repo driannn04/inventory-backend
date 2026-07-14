@@ -12,4 +12,8 @@ router.get("/me", verifyToken, (req, res) => {
   res.json({ user: req.user });
 });
 
+// FCM Token management
+router.post("/fcm-token", verifyToken, authController.saveFcmToken);
+router.delete("/fcm-token", verifyToken, authController.deleteFcmToken);
+
 module.exports = router;

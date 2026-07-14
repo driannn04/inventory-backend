@@ -98,3 +98,45 @@ exports.checkNup = (req, res) => {
     });
   });
 };
+
+exports.saveFcmToken = (req, res) => {
+  const { token, device_type } = req.body;
+  const userId = req.user.id;
+
+  if (!token) {
+    return res.status(400).json({ message: "Token FCM harus disertakan" });
+  }
+
+  const sql = `
+    INSERT INTO user_fcm_tokens (user_id, token, device_type) 
+    VALUES (?, ?, ?) 
+    ON DUPLICATE KEY UPDATE device_type = VALUES(device_type), updated_at = NOW()
+  `;
+
+  db.query(sql, [userId, token, device_type || 'android'], (err) => {
+    if (err) {
+      console.error("Error saving FCM token:", err);
+      return res.status(500).json({ message: "Gagal menyimpan token FCM", error: err.message });
+    }
+    res.json({ message: "Token FCM berhasil disimpan" });
+  });
+};
+
+exports.deleteFcmToken = (req, res) => {
+  const { token } = req.body;
+  const userId = req.user.id;
+
+  if (!token) {
+    return res.status(400).json({ message: "Token FCM harus disertakan" });
+  }
+
+  const sql = `DELETE FROM user_fcm_tokens WHERE user_id = ? AND token = ?`;
+
+  db.query(sql, [userId, token], (err, result) => {
+    if (err) {
+      console.error("Error deleting FCM token:", err);
+      return res.status(500).json({ message: "Gagal menghapus token FCM", error: err.message });
+    }
+    res.json({ message: "Token FCM berhasil dihapus", affectedRows: result.affectedRows });
+  });
+};

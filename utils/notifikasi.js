@@ -1,4 +1,27 @@
 const db = require("../config/db");
+const { sendPushNotification } = require("../config/firebase");
+
+// Helper to query tokens and send push notifications
+function triggerPushNotification(user_id, judul, pesan, tipe) {
+  db.query("SELECT token FROM user_fcm_tokens WHERE user_id = ?", [user_id], (tokenErr, tokenRows) => {
+    if (tokenErr) {
+      console.error("❌ [FCM] Error fetching FCM tokens for user:", tokenErr);
+      return;
+    }
+    if (tokenRows && tokenRows.length > 0) {
+      const tokens = tokenRows.map(row => row.token);
+      sendPushNotification(tokens, judul, pesan, { tipe, user_id: String(user_id) })
+        .then(result => {
+          if (result.success && result.tokensToRemove && result.tokensToRemove.length > 0) {
+            db.query("DELETE FROM user_fcm_tokens WHERE token IN (?)", [result.tokensToRemove], (delErr) => {
+              if (delErr) console.error("❌ [FCM] Error cleaning up invalid FCM tokens:", delErr);
+            });
+          }
+        })
+        .catch(err => console.error("❌ [FCM] Error sending FCM notification:", err));
+    }
+  });
+}
 
 // =============================
 // 🔔 NOTIF KE USER LANGSUNG
@@ -18,7 +41,11 @@ exports.kirimNotifikasi = (user_id, judul, pesan, tipe = 'info') => {
       const existingNotif = rows[0];
       const newPesan = existingNotif.pesan.includes(pesan) ? existingNotif.pesan : `${existingNotif.pesan}\n${pesan}`;
       
-      db.query("UPDATE notifikasi SET pesan = ?, created_at = NOW() WHERE id = ?", [newPesan, existingNotif.id]);
+      db.query("UPDATE notifikasi SET pesan = ?, created_at = NOW() WHERE id = ?", [newPesan, existingNotif.id], (updErr) => {
+        if (!updErr) {
+          triggerPushNotification(user_id, judul, pesan, tipe);
+        }
+      });
       
       // Emit socket tetap dilakukan agar UI refresh
       const idStr = String(user_id);
@@ -38,6 +65,9 @@ exports.kirimNotifikasi = (user_id, judul, pesan, tipe = 'info') => {
         if (err) {
           console.log("Notif error:", err);
         } else {
+          // Kirim FCM Push Notification
+          triggerPushNotification(user_id, judul, pesan, tipe);
+
           const idStr = String(user_id);
           if (global.io && global.onlineUsers && global.onlineUsers[idStr]) {
             global.onlineUsers[idStr].forEach(socketId => {

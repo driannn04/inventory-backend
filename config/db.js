@@ -20,6 +20,27 @@ db.getConnection((err, connection) => {
   } else {
     console.log("✅ Database Berhasil Terkoneksi ke:", process.env.DB_HOST);
     connection.release();
+
+    // Create user_fcm_tokens table if it doesn't exist
+    const createTableSql = `
+      CREATE TABLE IF NOT EXISTS user_fcm_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        token VARCHAR(500) NOT NULL,
+        device_type VARCHAR(50) DEFAULT 'android',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_user_token (user_id, token),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `;
+    db.query(createTableSql, (tableErr) => {
+      if (tableErr) {
+        console.error("❌ Gagal membuat/memverifikasi tabel user_fcm_tokens:", tableErr.message);
+      } else {
+        console.log("✅ Tabel user_fcm_tokens terverifikasi (ready)");
+      }
+    });
   }
 });
 
