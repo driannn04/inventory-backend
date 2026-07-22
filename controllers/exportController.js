@@ -177,7 +177,7 @@ exports.exportBarangKeluarPDF = (req, res) => {
       LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
       LEFT JOIN users u ON p.user_id = u.id
       LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
-      WHERE DATE(sk.tanggal) BETWEEN ? AND ?
+      WHERE sk.tanggal >= ? AND sk.tanggal < DATE_ADD(?, INTERVAL 1 DAY)
     `;
     const params = [start, end];
     if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
@@ -351,7 +351,7 @@ exports.exportBarangMasukPDF = (req, res) => {
       }
     }
 
-    const sql = `SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE DATE(sm.tanggal) BETWEEN ? AND ? ORDER BY sm.tanggal DESC`;
+    const sql = `SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY sm.tanggal DESC`;
     db.query(sql, [start, end], (err, rows) => {
       if (err) return res.status(500).json(err);
       
@@ -441,7 +441,7 @@ exports.exportBarangKeluarExcel = async (req, res) => {
     LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
     LEFT JOIN users u ON p.user_id = u.id
     LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
-    WHERE DATE(sk.tanggal) BETWEEN ? AND ?
+    WHERE sk.tanggal >= ? AND sk.tanggal < DATE_ADD(?, INTERVAL 1 DAY)
   `;
   const params = [start, end];
   if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
@@ -490,7 +490,7 @@ exports.exportBarangKeluarExcel = async (req, res) => {
 
 exports.exportBarangMasukExcel = async (req, res) => {
   const { start, end } = req.query;
-  const sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE DATE(sm.tanggal) BETWEEN ? AND ? ORDER BY sm.tanggal DESC`;
+  const sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY sm.tanggal DESC`;
 
   db.query(sql, [start, end], async (err, rows) => {
     if (err) return res.status(500).json(err);

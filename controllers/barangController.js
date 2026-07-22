@@ -159,6 +159,26 @@ exports.tambahBarang = async (req, res) => {
       lokasi_rak
     } = req.body;
 
+    // 🔥 VALIDASI INPUT WAJIB
+    if (!nama_barang || !nama_barang.trim()) {
+      return res.status(400).json({ message: "Nama barang wajib diisi!" });
+    }
+    if (!kategori_id) {
+      return res.status(400).json({ message: "Kategori barang wajib dipilih!" });
+    }
+    if (!satuan || !satuan.trim()) {
+      return res.status(400).json({ message: "Satuan barang wajib dipilih atau diisi!" });
+    }
+    if (stok_minimum === undefined || stok_minimum === null || stok_minimum === "") {
+      return res.status(400).json({ message: "Batas minimum stok wajib diisi!" });
+    }
+    if (stok === undefined || stok === null || stok === "") {
+      return res.status(400).json({ message: "Stok awal fisik wajib diisi!" });
+    }
+    if (!lokasi_rak || !lokasi_rak.trim()) {
+      return res.status(400).json({ message: "Lokasi rak / gudang wajib diisi!" });
+    }
+
     // 🔥 FIX NULL kode_barang
     if (!kode_barang || kode_barang === "null" || kode_barang === "") {
       kode_barang = generateKodeBarang();
@@ -278,6 +298,23 @@ exports.updateBarang = async (req, res) => {
     lokasi_rak
   } = req.body;
 
+  // 🔥 VALIDASI INPUT WAJIB
+  if (!nama_barang || !nama_barang.trim()) {
+    return res.status(400).json({ message: "Nama barang wajib diisi!" });
+  }
+  if (!kategori_id) {
+    return res.status(400).json({ message: "Kategori barang wajib dipilih!" });
+  }
+  if (!satuan || !satuan.trim()) {
+    return res.status(400).json({ message: "Satuan barang wajib dipilih atau diisi!" });
+  }
+  if (stok_minimum === undefined || stok_minimum === null || stok_minimum === "") {
+    return res.status(400).json({ message: "Batas minimum stok wajib diisi!" });
+  }
+  if (!lokasi_rak || !lokasi_rak.trim()) {
+    return res.status(400).json({ message: "Lokasi rak / gudang wajib diisi!" });
+  }
+
   let foto = null;
 
   if (req.file) {
@@ -344,19 +381,40 @@ exports.deleteBarang = (req, res) => {
     if (err || rows.length === 0) return res.status(404).json({ message: "Barang tidak ditemukan" });
     const b = rows[0];
 
-    const sql = "UPDATE barang SET is_deleted = 1 WHERE id=?";
-    db.query(sql, [id], (err) => {
-      if (err) return res.status(500).json(err);
+    // 2. Validasi: Cek apakah barang sedang dalam antrian pengajuan aktif
+    const checkSql = `
+      SELECT COUNT(*) as count_aktif
+      FROM pengajuan_detail pd
+      JOIN pengajuan p ON pd.pengajuan_id = p.id
+      WHERE pd.barang_id = ? 
+      AND p.status IN ('pending_asisten_manager', 'pending_manager', 'pending_gudang')
+    `;
 
-      res.json({ message: "Barang berhasil dinonaktifkan" });
+    db.query(checkSql, [id], (errCheck, checkResult) => {
+      if (errCheck) return res.status(500).json(errCheck);
 
-      // 🔥 LOG AKTIVITAS
-      logActivity(req.user.id, "HAPUS", "BARANG", `Menonaktifkan barang: [${b.kode_barang}] ${b.nama_barang}`, { req });
+      const totalAktif = checkResult[0]?.count_aktif || 0;
+      if (totalAktif > 0) {
+        return res.status(400).json({
+          message: `Barang "${b.nama_barang}" tidak dapat dihapus karena sedang dalam antrian pengajuan aktif (${totalAktif} pengajuan).`
+        });
+      }
 
-      // 🔥 NOTIFIKASI HAPUS BARANG (DETAIL)
-      const msg = `Barang [${b.kode_barang}] ${b.nama_barang} telah dinonaktifkan dari sistem oleh Admin.`;
-      kirimNotifikasiByRole("admin", "Penghapusan Barang", msg);
-      kirimNotifikasiByRole("gudang", "Penghapusan Barang", msg);
+      // 3. Jika tidak ada antrian aktif, jalankan soft delete
+      const sql = "UPDATE barang SET is_deleted = 1 WHERE id=?";
+      db.query(sql, [id], (err) => {
+        if (err) return res.status(500).json(err);
+
+        res.json({ message: "Barang berhasil dinonaktifkan" });
+
+        // 🔥 LOG AKTIVITAS
+        logActivity(req.user.id, "HAPUS", "BARANG", `Menonaktifkan barang: [${b.kode_barang}] ${b.nama_barang}`, { req });
+
+        // 🔥 NOTIFIKASI HAPUS BARANG (DETAIL)
+        const msg = `Barang [${b.kode_barang}] ${b.nama_barang} telah dinonaktifkan dari sistem oleh Admin.`;
+        kirimNotifikasiByRole("admin", "Penghapusan Barang", msg);
+        kirimNotifikasiByRole("gudang", "Penghapusan Barang", msg);
+      });
     });
   });
 };

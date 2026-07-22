@@ -16,7 +16,7 @@ exports.laporanBarangMasuk = (req, res) => {
     SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan
     FROM stok_masuk sm
     JOIN barang b ON sm.barang_id = b.id
-    WHERE DATE(sm.tanggal) BETWEEN ? AND ?
+    WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY)
     ORDER BY sm.tanggal DESC
   `;
   db.query(sql, [start, end], (err, result) => {
@@ -39,7 +39,7 @@ exports.laporanBarangKeluar = (req, res) => {
     LEFT JOIN users u ON p.user_id = u.id
     LEFT JOIN departments d ON u.id_dept = d.id
     LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
-    WHERE DATE(sk.tanggal) BETWEEN ? AND ?
+    WHERE sk.tanggal >= ? AND sk.tanggal < DATE_ADD(?, INTERVAL 1 DAY)
   `;
 
   const params = [start, end];
@@ -74,7 +74,7 @@ exports.laporanPengajuan = (req, res) => {
     JOIN barang b ON pd.barang_id = b.id
     JOIN users u ON p.user_id = u.id
     LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
-    WHERE DATE(p.tanggal_pengajuan) BETWEEN ? AND ?
+    WHERE p.tanggal_pengajuan >= ? AND p.tanggal_pengajuan < DATE_ADD(?, INTERVAL 1 DAY)
   `;
 
   const params = [start, end];

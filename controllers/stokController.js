@@ -74,7 +74,18 @@ exports.getStokMasukById = (req, res) => {
 };
 
 exports.getStokKeluar = (req, res) => {
-  const sql = `SELECT sk.*, b.nama_barang, b.kode_barang, b.satuan, b.foto, k.nama_kategori, p.nomor_pengajuan FROM stok_keluar sk JOIN barang b ON sk.barang_id = b.id LEFT JOIN kategori_barang k ON b.kategori_id = k.id LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id ORDER BY sk.tanggal DESC`;
+  const sql = `
+    SELECT sk.*, b.nama_barang, b.kode_barang, b.satuan, b.foto, k.nama_kategori, 
+           p.nomor_pengajuan, u.nama as pemohon, sd.nama_sub as unit, d.nama_dept as divisi
+    FROM stok_keluar sk
+    JOIN barang b ON sk.barang_id = b.id
+    LEFT JOIN kategori_barang k ON b.kategori_id = k.id
+    LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
+    LEFT JOIN users u ON p.user_id = u.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    ORDER BY sk.tanggal DESC
+  `;
   db.query(sql, (err, result) => {
     if (err) return res.status(500).json(err);
     res.json(result);
@@ -82,7 +93,18 @@ exports.getStokKeluar = (req, res) => {
 };
 
 exports.getStokKeluarById = (req, res) => {
-  const sql = `SELECT sk.*, b.nama_barang, b.kode_barang, b.satuan, b.lokasi_rak, b.foto, k.nama_kategori, p.nomor_pengajuan FROM stok_keluar sk JOIN barang b ON sk.barang_id = b.id LEFT JOIN kategori_barang k ON b.kategori_id = k.id LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id WHERE sk.id = ?`;
+  const sql = `
+    SELECT sk.*, b.nama_barang, b.kode_barang, b.satuan, b.lokasi_rak, b.foto, k.nama_kategori, 
+           p.nomor_pengajuan, u.nama as pemohon, sd.nama_sub as unit, d.nama_dept as divisi
+    FROM stok_keluar sk
+    JOIN barang b ON sk.barang_id = b.id
+    LEFT JOIN kategori_barang k ON b.kategori_id = k.id
+    LEFT JOIN pengajuan p ON sk.pengajuan_id = p.id
+    LEFT JOIN users u ON p.user_id = u.id
+    LEFT JOIN departments d ON u.id_dept = d.id
+    LEFT JOIN sub_departments sd ON u.id_subdept = sd.id
+    WHERE sk.id = ?
+  `;
   db.query(sql, [req.params.id], (err, result) => {
     if (err) return res.status(500).json(err);
     res.json(result[0]);
