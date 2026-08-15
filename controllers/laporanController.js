@@ -2,8 +2,18 @@ const db = require("../config/db");
 
 // 1. LAPORAN STOK (GLOBAL)
 exports.laporanStok = (req, res) => {
-  const sql = `SELECT kode_barang, nama_barang, satuan, stok FROM barang WHERE is_deleted = 0`;
-  db.query(sql, (err, result) => {
+  const { kategori_id } = req.query;
+
+  let sql = `SELECT b.kode_barang, b.nama_barang, b.satuan, b.stok FROM barang b WHERE b.is_deleted = 0`;
+  const params = [];
+
+  // Filter opsional per kategori
+  if (kategori_id) {
+    sql += ` AND b.kategori_id = ?`;
+    params.push(kategori_id);
+  }
+
+  db.query(sql, params, (err, result) => {
     if (err) return res.status(500).json(err);
     res.json(result);
   });
@@ -11,15 +21,25 @@ exports.laporanStok = (req, res) => {
 
 // 2. LAPORAN BARANG MASUK (GLOBAL - ADMIN/GUDANG)
 exports.laporanBarangMasuk = (req, res) => {
-  const { start, end } = req.query;
-  const sql = `
+  const { start, end, kategori_id } = req.query;
+
+  let sql = `
     SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan
     FROM stok_masuk sm
     JOIN barang b ON sm.barang_id = b.id
     WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY)
-    ORDER BY sm.tanggal DESC
   `;
-  db.query(sql, [start, end], (err, result) => {
+  const params = [start, end];
+
+  // Filter opsional per kategori
+  if (kategori_id) {
+    sql += ` AND b.kategori_id = ?`;
+    params.push(kategori_id);
+  }
+
+  sql += ` ORDER BY sm.tanggal DESC`;
+
+  db.query(sql, params, (err, result) => {
     if (err) return res.status(500).json(err);
     res.json(result);
   });
@@ -27,7 +47,7 @@ exports.laporanBarangMasuk = (req, res) => {
 
 // 3. LAPORAN BARANG KELUAR (FILTERED BY HIERARCHY)
 exports.laporanBarangKeluar = (req, res) => {
-  const { start, end } = req.query;
+  const { start, end, kategori_id } = req.query;
   const { role, id_dept, id_subdept } = req.user;
 
   let sql = `
@@ -50,6 +70,12 @@ exports.laporanBarangKeluar = (req, res) => {
   } else if (role === "asisten_manager") {
     sql += " AND u.id_subdept = ?";
     params.push(id_subdept);
+  }
+
+  // Filter opsional per kategori
+  if (kategori_id) {
+    sql += ` AND b.kategori_id = ?`;
+    params.push(kategori_id);
   }
 
   sql += " ORDER BY sk.tanggal DESC";

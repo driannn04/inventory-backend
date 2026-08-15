@@ -147,7 +147,7 @@ exports.exportPengajuanPDF = async (req, res) => {
 // EXPORT BARANG KELUAR (PDF)
 // ==========================================
 exports.exportBarangKeluarPDF = (req, res) => {
-  const { start, end } = req.query;
+  const { start, end, kategori_id } = req.query;
   const { role, id_dept, id_subdept, id: userId } = req.user;
 
   const userSql = `
@@ -182,6 +182,8 @@ exports.exportBarangKeluarPDF = (req, res) => {
     const params = [start, end];
     if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
     else if (role === "asisten_manager") { sql += " AND u.id_subdept = ?"; params.push(id_subdept); }
+    // Filter opsional per kategori
+    if (kategori_id) { sql += " AND b.kategori_id = ?"; params.push(kategori_id); }
     sql += " ORDER BY sk.tanggal DESC";
 
     db.query(sql, params, (err, rows) => {
@@ -264,6 +266,7 @@ exports.exportBarangKeluarPDF = (req, res) => {
 // ==========================================
 exports.exportStokPDF = (req, res) => {
   const { id: userId } = req.user;
+  const { kategori_id } = req.query;
 
   const userSql = `
     SELECT r.nama_role, d.nama_dept, sd.nama_sub
@@ -285,8 +288,15 @@ exports.exportStokPDF = (req, res) => {
       }
     }
 
-    const sql = "SELECT kode_barang, nama_barang, satuan, stok FROM barang WHERE is_deleted = 0 ORDER BY nama_barang ASC";
-    db.query(sql, (err, rows) => {
+    // Filter opsional per kategori
+    let sql = "SELECT b.kode_barang, b.nama_barang, b.satuan, b.stok FROM barang b WHERE b.is_deleted = 0";
+    const params = [];
+    if (kategori_id) {
+      sql += " AND b.kategori_id = ?";
+      params.push(kategori_id);
+    }
+    sql += " ORDER BY b.nama_barang ASC";
+    db.query(sql, params, (err, rows) => {
       if (err) return res.status(500).json(err);
       const doc = new PDFDocument({ margin: 40 });
       res.setHeader("Content-Disposition", "attachment; filename=laporan_stok.pdf");
@@ -328,7 +338,7 @@ exports.exportStokPDF = (req, res) => {
 // EXPORT BARANG MASUK (PDF)
 // ==========================================
 exports.exportBarangMasukPDF = (req, res) => {
-  const { start, end } = req.query;
+  const { start, end, kategori_id } = req.query;
   const { id: userId } = req.user;
 
   const userSql = `
@@ -351,8 +361,15 @@ exports.exportBarangMasukPDF = (req, res) => {
       }
     }
 
-    const sql = `SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY sm.tanggal DESC`;
-    db.query(sql, [start, end], (err, rows) => {
+    // Filter opsional per kategori
+    let sql = `SELECT b.kode_barang, b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY)`;
+    const params = [start, end];
+    if (kategori_id) {
+      sql += ` AND b.kategori_id = ?`;
+      params.push(kategori_id);
+    }
+    sql += ` ORDER BY sm.tanggal DESC`;
+    db.query(sql, params, (err, rows) => {
       if (err) return res.status(500).json(err);
       
       // Group by Date
@@ -431,7 +448,7 @@ exports.exportBarangMasukPDF = (req, res) => {
 // ==========================================
 
 exports.exportBarangKeluarExcel = async (req, res) => {
-  const { start, end } = req.query;
+  const { start, end, kategori_id } = req.query;
   const { role, id_dept, id_subdept } = req.user;
 
   let sql = `
@@ -446,6 +463,8 @@ exports.exportBarangKeluarExcel = async (req, res) => {
   const params = [start, end];
   if (role === "manager") { sql += " AND u.id_dept = ?"; params.push(id_dept); }
   else if (role === "asisten_manager") { sql += " AND u.id_subdept = ?"; params.push(id_subdept); }
+  // Filter opsional per kategori
+  if (kategori_id) { sql += " AND b.kategori_id = ?"; params.push(kategori_id); }
   sql += " ORDER BY sk.tanggal DESC";
 
   db.query(sql, params, async (err, rows) => {
@@ -489,10 +508,18 @@ exports.exportBarangKeluarExcel = async (req, res) => {
 };
 
 exports.exportBarangMasukExcel = async (req, res) => {
-  const { start, end } = req.query;
-  const sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY sm.tanggal DESC`;
+  const { start, end, kategori_id } = req.query;
 
-  db.query(sql, [start, end], async (err, rows) => {
+  // Filter opsional per kategori
+  let sql = `SELECT b.nama_barang, sm.jumlah, b.satuan, sm.tanggal, sm.keterangan FROM stok_masuk sm JOIN barang b ON sm.barang_id = b.id WHERE sm.tanggal >= ? AND sm.tanggal < DATE_ADD(?, INTERVAL 1 DAY)`;
+  const params = [start, end];
+  if (kategori_id) {
+    sql += ` AND b.kategori_id = ?`;
+    params.push(kategori_id);
+  }
+  sql += ` ORDER BY sm.tanggal DESC`;
+
+  db.query(sql, params, async (err, rows) => {
     if (err) return res.status(500).json(err);
     const workbook = new excel.Workbook();
     const sheet = workbook.addWorksheet("Barang Masuk");
@@ -521,8 +548,18 @@ exports.exportBarangMasukExcel = async (req, res) => {
 };
 
 exports.exportStokExcel = async (req, res) => {
-  const sql = "SELECT kode_barang, nama_barang, satuan, stok FROM barang WHERE is_deleted = 0 ORDER BY nama_barang ASC";
-  db.query(sql, async (err, rows) => {
+  const { kategori_id } = req.query;
+
+  // Filter opsional per kategori
+  let sql = "SELECT b.kode_barang, b.nama_barang, b.satuan, b.stok FROM barang b WHERE b.is_deleted = 0";
+  const params = [];
+  if (kategori_id) {
+    sql += " AND b.kategori_id = ?";
+    params.push(kategori_id);
+  }
+  sql += " ORDER BY b.nama_barang ASC";
+
+  db.query(sql, params, async (err, rows) => {
     if (err) return res.status(500).json(err);
     const workbook = new excel.Workbook();
     const sheet = workbook.addWorksheet("Stok Barang");
